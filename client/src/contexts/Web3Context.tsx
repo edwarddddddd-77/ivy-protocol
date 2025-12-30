@@ -4,7 +4,7 @@ import {
   RainbowKitProvider,
   darkTheme,
 } from '@rainbow-me/rainbowkit';
-import { WagmiProvider } from 'wagmi';
+import { WagmiProvider, http } from 'wagmi';
 import {
   bscTestnet,
 } from 'wagmi/chains';
@@ -14,15 +14,15 @@ import {
 } from "@tanstack/react-query";
 import { ReactNode } from 'react';
 
-// Using a public testing Project ID from WalletConnect docs
-// In production, you should register at cloud.walletconnect.com
-const projectId = '3a8170812b534d0ff9d794f19a901d64';
-
+// Strictly following user configuration
 const config = getDefaultConfig({
   appName: 'Ivy Protocol',
-  projectId: projectId,
+  projectId: '3a8170812b534d0ff9d794f19a901d64', // Keeping the valid ID to ensure WalletConnect works
   chains: [bscTestnet],
-  ssr: false,
+  transports: {
+    [bscTestnet.id]: http('https://data-seed-prebsc-1-s1.binance.org:8545/'),
+  },
+  ssr: false, // Vite project
 });
 
 const queryClient = new QueryClient();
