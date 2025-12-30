@@ -24,6 +24,52 @@ export default function Home() {
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-slate-950 to-transparent"></div>
       </div>
 
+      {/* Header / Navigation */}
+      <header className="absolute top-0 left-0 w-full z-50 p-6 md:p-8">
+        <div className="container flex items-center justify-between">
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="flex items-center gap-3"
+          >
+            <div className="relative w-12 h-12 md:w-16 md:h-16 overflow-hidden rounded-lg border border-[#39FF14]/30 bg-black/50 backdrop-blur-sm">
+              <img 
+                src="/images/logo.png" 
+                alt="Ivy Protocol Logo" 
+                className="w-full h-full object-cover scale-110 mix-blend-screen"
+              />
+              <div className="absolute inset-0 bg-[#39FF14]/10 mix-blend-overlay"></div>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-display font-bold text-xl md:text-2xl tracking-wider text-white">IVY PROTOCOL</span>
+              <span className="font-mono text-[10px] text-[#39FF14] tracking-[0.2em] uppercase">Structured Bond Layer</span>
+            </div>
+          </motion.div>
+
+          <motion.nav 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="hidden md:flex items-center gap-8"
+          >
+            {['Protocol', 'Governance', 'Docs', 'Community'].map((item, i) => (
+              <a 
+                key={item} 
+                href="#" 
+                className="font-mono text-sm text-slate-400 hover:text-[#39FF14] transition-colors uppercase tracking-wider relative group"
+              >
+                {item}
+                <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-[#39FF14] group-hover:w-full transition-all duration-300"></span>
+              </a>
+            ))}
+            <Button variant="outline" className="border-[#39FF14]/50 text-[#39FF14] hover:bg-[#39FF14] hover:text-black font-mono text-xs h-8 px-4 uppercase tracking-wider">
+              Connect Wallet
+            </Button>
+          </motion.nav>
+        </div>
+      </header>
+
       <main className="relative z-10 container h-screen flex flex-col md:flex-row items-center justify-center md:justify-between gap-12 pt-20 md:pt-0">
         
         {/* Typography Layer (Left) */}
