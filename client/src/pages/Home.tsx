@@ -1,11 +1,12 @@
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
-import { Activity, Cpu, Database, Zap } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Activity, Cpu, Database, Zap, Menu, X } from "lucide-react";
 import { useState } from "react";
 
 export default function Home() {
   const [isHoveringMint, setIsHoveringMint] = useState(false);
   const [pidValue, setPidValue] = useState(1.2);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Simulate PID fluctuation
   useState(() => {
@@ -67,33 +68,66 @@ export default function Home() {
               Connect Wallet
             </Button>
           </motion.nav>
+
+          {/* Mobile Menu Toggle */}
+          <div className="md:hidden z-50">
+            <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-[#39FF14]">
+              {isMobileMenuOpen ? <X /> : <Menu />}
+            </Button>
+          </div>
         </div>
       </header>
 
-      <main className="relative z-10 container h-screen flex flex-col md:flex-row items-center justify-center md:justify-between gap-12 pt-20 md:pt-0">
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed inset-0 z-40 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center gap-8 md:hidden"
+          >
+            {['Protocol', 'Governance', 'Docs', 'Community'].map((item) => (
+              <a 
+                key={item} 
+                href="#" 
+                className="font-display text-2xl text-white hover:text-[#39FF14] uppercase tracking-widest"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                {item}
+              </a>
+            ))}
+            <Button className="mt-4 bg-[#39FF14] text-black font-bold uppercase tracking-wider px-8 py-6">
+              Connect Wallet
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <main className="relative z-10 container min-h-screen flex flex-col md:flex-row items-center justify-center md:justify-between gap-8 md:gap-12 pt-24 pb-12 md:pt-0 md:pb-0">
         
         {/* Typography Layer (Left) */}
-        <div className="flex-1 flex flex-col items-start space-y-8 max-w-2xl z-30">
+        <div className="flex-1 flex flex-col items-start space-y-6 md:space-y-8 max-w-2xl z-30 w-full">
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className="space-y-2"
+            className="space-y-2 w-full"
           >
-            <div className="flex items-center gap-2 text-[#39FF14] font-mono text-sm tracking-widest uppercase">
+            <div className="flex items-center gap-2 text-[#39FF14] font-mono text-xs md:text-sm tracking-widest uppercase">
               <span className="w-2 h-2 bg-[#39FF14] animate-pulse"></span>
               <span>System Online // V2.5</span>
             </div>
             
-            <h1 className="text-6xl md:text-8xl font-display font-bold uppercase leading-[0.9] tracking-tight text-[#E0E0E0] mix-blend-difference relative group cursor-default">
+            <h1 className="text-4xl sm:text-5xl md:text-8xl font-display font-bold uppercase leading-[0.9] tracking-tight text-[#E0E0E0] mix-blend-difference relative group cursor-default">
               <GlitchText text="Let Time" /> <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400">Be Your Ally</span>
             </h1>
             
-            <p className="text-lg md:text-xl text-slate-400 font-mono max-w-lg border-l-2 border-[#39FF14]/30 pl-4">
+            <p className="text-sm md:text-xl text-slate-400 font-mono max-w-lg border-l-2 border-[#39FF14]/30 pl-4">
               The First PID-Controlled Structured Bond Protocol.
               <br />
-              <span className="text-[#39FF14] text-sm opacity-80">Algorithmic Stability // Yield Optimization</span>
+              <span className="text-[#39FF14] text-xs md:text-sm opacity-80">Algorithmic Stability // Yield Optimization</span>
             </p>
           </motion.div>
 
@@ -118,7 +152,7 @@ export default function Home() {
         </div>
 
         {/* Reactor Core (Center/Right) */}
-        <div className="flex-1 relative flex items-center justify-center w-full max-w-xl aspect-square z-10 pointer-events-none">
+        <div className="flex-1 relative flex items-center justify-center w-full max-w-xs md:max-w-xl aspect-square z-10 pointer-events-none order-first md:order-none mt-[-2rem] md:mt-0">
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 0.85 }}
@@ -154,15 +188,15 @@ export default function Home() {
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.8 }}
-          className="absolute bottom-8 right-8 md:right-12 flex flex-row gap-4 z-40 items-end"
+          className="relative md:absolute md:bottom-8 md:right-8 lg:right-12 flex flex-col sm:flex-row gap-4 z-40 items-stretch md:items-end w-full md:w-auto"
         >
-          <div className="flex flex-col gap-4">
-            <GlassCard label="APY" value="128%" sub="Dynamic" icon={<Activity className="w-4 h-4 text-[#39FF14]" />} glow />
-            <GlassCard label="TVL" value="$5.24M" sub="Verified" icon={<Database className="w-4 h-4 text-slate-400" />} />
+          <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
+            <GlassCard label="APY" value="128%" sub="Dynamic" icon={<Activity className="w-4 h-4 text-[#39FF14]" />} glow className="flex-1 md:flex-none" />
+            <GlassCard label="TVL" value="$5.24M" sub="Verified" icon={<Database className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
           </div>
-          <div className="flex flex-col gap-4">
-            <GlassCard label="Nodes" value="842" sub="Genesis" icon={<Cpu className="w-4 h-4 text-slate-400" />} />
-            <GlassCard label="PID Status" value={`${pidValue}x`} sub="Boost Active" icon={<Zap className="w-4 h-4 text-[#39FF14]" />} glow />
+          <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
+            <GlassCard label="Nodes" value="842" sub="Genesis" icon={<Cpu className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
+            <GlassCard label="PID Status" value={`${pidValue}x`} sub="Boost Active" icon={<Zap className="w-4 h-4 text-[#39FF14]" />} glow className="flex-1 md:flex-none" />
           </div>
         </motion.div>
       </main>
@@ -183,13 +217,14 @@ function GlitchText({ text }: { text: string }) {
   );
 }
 
-function GlassCard({ label, value, sub, icon, glow = false }: { label: string, value: string, sub: string, icon: React.ReactNode, glow?: boolean }) {
+function GlassCard({ label, value, sub, icon, glow = false, className = "" }: { label: string, value: string, sub: string, icon: React.ReactNode, glow?: boolean, className?: string }) {
   return (
     <motion.div 
       whileHover={{ x: -5, backgroundColor: glow ? 'rgba(57, 255, 20, 0.1)' : 'rgba(15, 23, 42, 0.6)' }}
       className={`
-      relative overflow-hidden backdrop-blur-md border p-4 w-64 transition-colors duration-300
+      relative overflow-hidden backdrop-blur-md border p-4 w-full md:w-64 transition-colors duration-300
       ${glow ? 'bg-[#39FF14]/5 border-[#39FF14]/50 shadow-[0_0_15px_rgba(57,255,20,0.15)]' : 'bg-slate-900/40 border-white/10'}
+      ${className}
     `}>
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">{label}</span>
