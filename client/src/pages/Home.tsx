@@ -1,28 +1,48 @@
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Cpu, Database, Zap, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Activity, Cpu, Database, Zap, Menu, X, AlertTriangle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useIvyContract } from "@/hooks/useIvyContract";
+import { useConnect } from "wagmi";
+import { injected } from "wagmi/connectors";
+import { toast } from "sonner";
 
 export default function Home() {
   const [isHoveringMint, setIsHoveringMint] = useState(false);
-  const [pidValue, setPidValue] = useState(1.2);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  const { connect } = useConnect();
+  const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, mintDaily, address } = useIvyContract();
 
-  // Simulate PID fluctuation
-  useState(() => {
-    const interval = setInterval(() => {
-      setPidValue(prev => +(prev + (Math.random() * 0.04 - 0.02)).toFixed(3));
-    }, 200);
-    return () => clearInterval(interval);
-  });
+  // Circuit Breaker Status
+  const isRedAlert = cbStatus?.isActive && cbStatus?.level === 3; // Level 3 = RED
+  const pidValue = effectiveAlpha;
+
+  const handleConnect = () => {
+    connect({ connector: injected() });
+  };
+
+  const handleMint = async () => {
+    if (!address) {
+      handleConnect();
+      return;
+    }
+    try {
+      await mintDaily();
+      toast.success("Mint Initialized Successfully!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Mint Failed: " + (e as Error).message);
+    }
+  };
 
   return (
     <div className="min-h-screen w-full bg-slate-950 text-white overflow-hidden relative selection:bg-[#39FF14] selection:text-black">
       {/* Background Elements */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
+      <div className={`absolute inset-0 z-0 pointer-events-none transition-colors duration-1000 ${isRedAlert ? 'bg-red-950/30' : ''}`}>
         <div className="absolute inset-0 bg-[url('/images/circuit-bg.png')] opacity-20 bg-repeat bg-[length:400px_400px]"></div>
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/50 to-slate-950"></div>
-        <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-slate-950 to-transparent"></div>
+        <div className={`absolute inset-0 bg-gradient-to-b from-transparent ${isRedAlert ? 'via-red-950/50 to-red-950' : 'via-slate-950/50 to-slate-950'}`}></div>
+        <div className={`absolute top-0 left-0 w-full h-32 bg-gradient-to-b ${isRedAlert ? 'from-red-950' : 'from-slate-950'} to-transparent`}></div>
       </div>
 
       {/* Header / Navigation */}
@@ -64,8 +84,12 @@ export default function Home() {
                 <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-[#39FF14] group-hover:w-full transition-all duration-300"></span>
               </a>
             ))}
-            <Button variant="outline" className="border-[#39FF14]/50 text-[#39FF14] hover:bg-[#39FF14] hover:text-black font-mono text-xs h-8 px-4 uppercase tracking-wider">
-              Connect Wallet
+            <Button 
+              variant="outline" 
+              className={`border-[#39FF14]/50 text-[#39FF14] hover:bg-[#39FF14] hover:text-black font-mono text-xs h-8 px-4 uppercase tracking-wider ${address ? 'bg-[#39FF14]/10' : ''}`}
+              onClick={handleConnect}
+            >
+              {address ? `${address.slice(0,6)}...${address.slice(-4)}` : "Connect Wallet"}
             </Button>
           </motion.nav>
 
@@ -137,16 +161,22 @@ export default function Home() {
             transition={{ delay: 0.4, duration: 0.6 }}
           >
             <Button 
-              className="relative group overflow-hidden bg-[#39FF14] border border-[#39FF14] text-black hover:scale-105 hover:shadow-[0_0_30px_#39FF14] transition-all duration-300 px-8 py-6 text-lg font-bold font-mono tracking-widest uppercase cyber-border"
+              className={`relative group overflow-hidden border transition-all duration-300 px-8 py-6 text-lg font-bold font-mono tracking-widest uppercase cyber-border
+                ${isRedAlert 
+                  ? 'bg-red-600 border-red-600 text-white hover:shadow-[0_0_30px_#ff0000] cursor-not-allowed' 
+                  : 'bg-[#39FF14] border-[#39FF14] text-black hover:scale-105 hover:shadow-[0_0_30px_#39FF14]'
+                }`}
               onMouseEnter={() => setIsHoveringMint(true)}
               onMouseLeave={() => setIsHoveringMint(false)}
+              onClick={handleMint}
+              disabled={isRedAlert}
             >
               <span className="relative z-10 flex items-center gap-2">
-                <Zap className={`w-5 h-5 fill-black ${isHoveringMint ? 'animate-bounce' : ''}`} />
-                [ Initialize Mint ]
+                {isRedAlert ? <AlertTriangle className="w-5 h-5" /> : <Zap className={`w-5 h-5 fill-black ${isHoveringMint ? 'animate-bounce' : ''}`} />}
+                {isRedAlert ? "[ SYSTEM LOCKED ]" : "[ Initialize Mint ]"}
               </span>
               {/* Glitch Effect Overlay */}
-              <div className={`absolute inset-0 bg-white/40 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>
+              {!isRedAlert && <div className={`absolute inset-0 bg-white/40 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>}
             </Button>
           </motion.div>
         </div>
@@ -200,12 +230,12 @@ export default function Home() {
           className="relative md:absolute md:bottom-8 md:right-8 lg:right-12 flex flex-col sm:flex-row gap-4 z-40 items-stretch md:items-end w-full md:w-auto"
         >
           <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
-            <GlassCard label="APY" value="128%" sub="Dynamic" icon={<Activity className="w-4 h-4 text-[#39FF14]" />} glow className="flex-1 md:flex-none" />
-            <GlassCard label="TVL" value="$5.24M" sub="Verified" icon={<Database className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
+            <GlassCard label="Daily Mint" value={`${parseFloat(dailyMintAmount).toFixed(2)}`} sub="IVY / Day" icon={<Activity className={`w-4 h-4 ${isRedAlert ? 'text-red-500' : 'text-[#39FF14]'}`} />} glow={!isRedAlert} alert={isRedAlert} className="flex-1 md:flex-none" />
+            <GlassCard label="Your Balance" value={`${parseFloat(ivyBalance).toFixed(2)}`} sub="IVY" icon={<Database className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
           </div>
           <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
             <GlassCard label="Nodes" value="842" sub="Genesis" icon={<Cpu className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
-            <GlassCard label="PID Status" value={`${pidValue}x`} sub="Boost Active" icon={<Zap className="w-4 h-4 text-[#39FF14]" />} glow className="flex-1 md:flex-none" />
+            <GlassCard label="PID Status" value={`${pidValue.toFixed(3)}x`} sub={isRedAlert ? "CIRCUIT BREAKER" : "Boost Active"} icon={<Zap className={`w-4 h-4 ${isRedAlert ? 'text-red-500' : 'text-[#39FF14]'}`} />} glow={!isRedAlert} alert={isRedAlert} className="flex-1 md:flex-none" />
           </div>
         </motion.div>
       </main>
@@ -226,30 +256,30 @@ function GlitchText({ text }: { text: string }) {
   );
 }
 
-function GlassCard({ label, value, sub, icon, glow = false, className = "" }: { label: string, value: string, sub: string, icon: React.ReactNode, glow?: boolean, className?: string }) {
+function GlassCard({ label, value, sub, icon, glow = false, alert = false, className = "" }: { label: string, value: string, sub: string, icon: React.ReactNode, glow?: boolean, alert?: boolean, className?: string }) {
   return (
     <motion.div 
-      whileHover={{ x: -5, backgroundColor: glow ? 'rgba(57, 255, 20, 0.1)' : 'rgba(15, 23, 42, 0.6)' }}
+      whileHover={{ x: -5, backgroundColor: alert ? 'rgba(255, 0, 0, 0.1)' : (glow ? 'rgba(57, 255, 20, 0.1)' : 'rgba(15, 23, 42, 0.6)') }}
       className={`
       relative overflow-hidden backdrop-blur-md border p-4 w-full md:w-64 transition-colors duration-300
-      ${glow ? 'bg-[#39FF14]/5 border-[#39FF14]/50 shadow-[0_0_15px_rgba(57,255,20,0.15)]' : 'bg-slate-900/40 border-white/10'}
+      ${alert ? 'bg-red-950/40 border-red-500/50 shadow-[0_0_15px_rgba(255,0,0,0.15)]' : (glow ? 'bg-[#39FF14]/5 border-[#39FF14]/50 shadow-[0_0_15px_rgba(57,255,20,0.15)]' : 'bg-slate-900/40 border-white/10')}
       ${className}
     `}>
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">{label}</span>
         {icon}
       </div>
-      <div className={`text-2xl font-display font-bold ${glow ? 'text-[#39FF14] text-glow' : 'text-white'}`}>
+      <div className={`text-2xl font-display font-bold ${alert ? 'text-red-500' : (glow ? 'text-[#39FF14] text-glow' : 'text-white')}`}>
         {value}
       </div>
       <div className="text-xs font-mono text-slate-500 mt-1 flex items-center gap-1">
-        <span className={`w-1.5 h-1.5 rounded-full ${glow ? 'bg-[#39FF14] animate-pulse' : 'bg-slate-600'}`}></span>
+        <span className={`w-1.5 h-1.5 rounded-full ${alert ? 'bg-red-500 animate-ping' : (glow ? 'bg-[#39FF14] animate-pulse' : 'bg-slate-600')}`}></span>
         {sub}
       </div>
       
       {/* Corner Accents */}
-      <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#39FF14]/50"></div>
-      <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#39FF14]/50"></div>
+      <div className={`absolute top-0 left-0 w-2 h-2 border-t border-l ${alert ? 'border-red-500/50' : 'border-[#39FF14]/50'}`}></div>
+      <div className={`absolute bottom-0 right-0 w-2 h-2 border-b border-r ${alert ? 'border-red-500/50' : 'border-[#39FF14]/50'}`}></div>
     </motion.div>
   );
 }
