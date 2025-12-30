@@ -1,38 +1,36 @@
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity, Cpu, Database, Zap, Menu, X, AlertTriangle } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useIvyContract } from "@/hooks/useIvyContract";
-import { useConnect } from "wagmi";
-import { injected } from "wagmi/connectors";
 import { toast } from "sonner";
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 export default function Home() {
   const [isHoveringMint, setIsHoveringMint] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMinting, setIsMinting] = useState(false);
   
-  const { connect } = useConnect();
-  const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, mintDaily, address } = useIvyContract();
+  const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, mintGenesisNode, address } = useIvyContract();
 
   // Circuit Breaker Status
   const isRedAlert = cbStatus?.isActive && cbStatus?.level === 3; // Level 3 = RED
   const pidValue = effectiveAlpha;
 
-  const handleConnect = () => {
-    connect({ connector: injected() });
-  };
-
   const handleMint = async () => {
     if (!address) {
-      handleConnect();
+      toast.error("Please connect your wallet first");
       return;
     }
     try {
-      await mintDaily();
-      toast.success("Mint Initialized Successfully!");
+      setIsMinting(true);
+      await mintGenesisNode();
+      toast.success("Welcome, Commander. Genesis Node Initialized.");
     } catch (e) {
       console.error(e);
       toast.error("Mint Failed: " + (e as Error).message);
+    } finally {
+      setIsMinting(false);
     }
   };
 
@@ -74,7 +72,7 @@ export default function Home() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="hidden md:flex items-center gap-8"
           >
-            {['Protocol', 'Governance', 'Docs', 'Community'].map((item, i) => (
+            {['Protocol', 'Governance', 'Docs', 'Community'].map((item) => (
               <a 
                 key={item} 
                 href="#" 
@@ -84,13 +82,79 @@ export default function Home() {
                 <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-[#39FF14] group-hover:w-full transition-all duration-300"></span>
               </a>
             ))}
-            <Button 
-              variant="outline" 
-              className={`border-[#39FF14]/50 text-[#39FF14] hover:bg-[#39FF14] hover:text-black font-mono text-xs h-8 px-4 uppercase tracking-wider ${address ? 'bg-[#39FF14]/10' : ''}`}
-              onClick={handleConnect}
-            >
-              {address ? `${address.slice(0,6)}...${address.slice(-4)}` : "Connect Wallet"}
-            </Button>
+            <ConnectButton.Custom>
+              {({
+                account,
+                chain,
+                openAccountModal,
+                openChainModal,
+                openConnectModal,
+                authenticationStatus,
+                mounted,
+              }) => {
+                const ready = mounted && authenticationStatus !== 'loading';
+                const connected =
+                  ready &&
+                  account &&
+                  chain &&
+                  (!authenticationStatus ||
+                    authenticationStatus === 'authenticated');
+
+                return (
+                  <div
+                    {...(!ready && {
+                      'aria-hidden': true,
+                      'style': {
+                        opacity: 0,
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                      },
+                    })}
+                  >
+                    {(() => {
+                      if (!connected) {
+                        return (
+                          <Button 
+                            variant="outline" 
+                            className="border-[#39FF14]/50 text-[#39FF14] hover:bg-[#39FF14] hover:text-black font-mono text-xs h-8 px-4 uppercase tracking-wider"
+                            onClick={openConnectModal}
+                          >
+                            Connect Wallet
+                          </Button>
+                        );
+                      }
+
+                      if (chain.unsupported) {
+                        return (
+                          <Button 
+                            variant="destructive"
+                            className="font-mono text-xs h-8 px-4 uppercase tracking-wider"
+                            onClick={openChainModal}
+                          >
+                            Wrong network
+                          </Button>
+                        );
+                      }
+
+                      return (
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <Button
+                            variant="outline"
+                            className="border-[#39FF14]/50 text-[#39FF14] hover:bg-[#39FF14] hover:text-black font-mono text-xs h-8 px-4 uppercase tracking-wider"
+                            onClick={openAccountModal}
+                          >
+                            {account.displayName}
+                            {account.displayBalance
+                              ? ` (${account.displayBalance})`
+                              : ''}
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              }}
+            </ConnectButton.Custom>
           </motion.nav>
 
           {/* Mobile Menu Toggle */}
@@ -121,9 +185,9 @@ export default function Home() {
                 {item}
               </a>
             ))}
-            <Button className="mt-4 bg-[#39FF14] text-black font-bold uppercase tracking-wider px-8 py-6">
-              Connect Wallet
-            </Button>
+            <div className="mt-4">
+              <ConnectButton />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -169,14 +233,14 @@ export default function Home() {
               onMouseEnter={() => setIsHoveringMint(true)}
               onMouseLeave={() => setIsHoveringMint(false)}
               onClick={handleMint}
-              disabled={isRedAlert}
+              disabled={isRedAlert || isMinting}
             >
               <span className="relative z-10 flex items-center gap-2">
                 {isRedAlert ? <AlertTriangle className="w-5 h-5" /> : <Zap className={`w-5 h-5 fill-black ${isHoveringMint ? 'animate-bounce' : ''}`} />}
-                {isRedAlert ? "[ SYSTEM LOCKED ]" : "[ Initialize Mint ]"}
+                {isRedAlert ? "[ SYSTEM LOCKED ]" : isMinting ? "[ MINTING... ]" : "[ Initialize Mint ]"}
               </span>
               {/* Glitch Effect Overlay */}
-              {!isRedAlert && <div className={`absolute inset-0 bg-white/40 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>}
+              {!isRedAlert && !isMinting && <div className={`absolute inset-0 bg-white/40 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>}
             </Button>
           </motion.div>
         </div>

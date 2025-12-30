@@ -68,6 +68,15 @@ export function useIvyContract() {
     effectiveAlpha: effectiveAlpha ? Number(formatEther(effectiveAlpha as bigint)) : 1.2,
     ivyBalance: ivyBalance ? formatEther(ivyBalance as bigint) : "0",
     mintDaily,
+    mintGenesisNode: async () => {
+      if (!address) throw new Error("Wallet not connected");
+      return writeContractAsync({
+        address: addresses.GenesisNode as `0x${string}`,
+        abi: abis.GenesisNode,
+        functionName: "mint",
+        args: [address],
+      });
+    },
     address,
   };
 }
