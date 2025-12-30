@@ -14,11 +14,15 @@ import {
 } from "@tanstack/react-query";
 import { ReactNode } from 'react';
 
+// Using a public testing Project ID from WalletConnect docs
+// In production, you should register at cloud.walletconnect.com
+const projectId = '3a8170812b534d0ff9d794f19a901d64';
+
 const config = getDefaultConfig({
   appName: 'Ivy Protocol',
-  projectId: 'YOUR_PROJECT_ID', // Placeholder, RainbowKit works without it for public chains in dev
+  projectId: projectId,
   chains: [bscTestnet],
-  ssr: false, // If your dApp uses server side rendering (SSR)
+  ssr: false,
 });
 
 const queryClient = new QueryClient();
