@@ -162,24 +162,33 @@ export default function Home() {
             {/* Glow Behind */}
             <div className="absolute inset-0 bg-[#39FF14] blur-[100px] opacity-20 animate-pulse"></div>
             
-            {/* Reactor Image */}
-            <motion.img 
-              src="/images/reactor-core.png" 
-              alt="Reactor Core" 
-              className="relative z-10 w-[80%] md:w-full object-contain drop-shadow-[0_0_30px_rgba(57,255,20,0.3)] mix-blend-screen [mask-image:radial-gradient(closest-side,white_65%,transparent_95%)]"
-              animate={{ 
-                rotate: 360,
-                scale: isHoveringMint ? 0.9 : 0.85
-              }}
-              transition={{ 
-                rotate: { duration: 60 / pidValue, repeat: Infinity, ease: "linear" },
-                scale: { duration: 0.3 }
-              }}
-            />
-            
-            {/* Orbital Rings */}
-            <div className="absolute inset-0 border border-[#39FF14]/20 rounded-full w-[110%] h-[110%] -top-[5%] -left-[5%] animate-[spin_20s_linear_infinite_reverse]"></div>
-            <div className="absolute inset-0 border border-dashed border-[#39FF14]/30 rounded-full w-[130%] h-[130%] -top-[15%] -left-[15%] animate-[spin_40s_linear_infinite]"></div>
+            {/* CSS Reactor Component */}
+            <div className="relative w-64 h-64 md:w-96 md:h-96 flex items-center justify-center [perspective:1000px]">
+              {/* Core Sphere - Pure CSS Construction */}
+              <motion.div
+                className="relative w-full h-full [transform-style:preserve-3d]"
+                animate={{ rotateY: 360, rotateZ: 360 }}
+                transition={{ duration: 20 / pidValue, repeat: Infinity, ease: "linear" }}
+              >
+                {/* Vertical Rings */}
+                {[0, 45, 90, 135].map((deg) => (
+                  <div
+                    key={deg}
+                    className="absolute inset-0 rounded-full border-2 border-[#39FF14]/40 shadow-[0_0_15px_#39FF14]"
+                    style={{ transform: `rotateY(${deg}deg)` }}
+                  ></div>
+                ))}
+                {/* Horizontal Rings */}
+                <div className="absolute top-[10%] left-[10%] w-[80%] h-[80%] rounded-full border border-[#39FF14]/20 [transform:rotateX(90deg)]"></div>
+                <div className="absolute top-[25%] left-[25%] w-[50%] h-[50%] rounded-full border border-[#39FF14]/20 [transform:rotateX(90deg)]"></div>
+                
+                {/* Core Energy Block */}
+                <div className="absolute inset-0 m-auto w-1/3 h-1/3 bg-[#39FF14] rounded-full blur-md opacity-50 animate-pulse"></div>
+              </motion.div>
+              
+              {/* External Floating Orbit */}
+              <div className="absolute inset-0 border border-[#39FF14]/20 rounded-full w-[120%] h-[120%] -top-[10%] -left-[10%] animate-[spin_10s_linear_infinite_reverse]"></div>
+            </div>
           </motion.div>
         </div>
 
