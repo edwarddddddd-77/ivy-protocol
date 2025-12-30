@@ -132,7 +132,7 @@ export default function Home() {
             <motion.img 
               src="/images/reactor-core.png" 
               alt="Reactor Core" 
-              className="relative z-10 w-[80%] md:w-full object-contain drop-shadow-[0_0_30px_rgba(57,255,20,0.3)]"
+              className="relative z-10 w-[80%] md:w-full object-contain drop-shadow-[0_0_30px_rgba(57,255,20,0.3)] mix-blend-screen [mask-image:radial-gradient(closest-side,white_65%,transparent_95%)]"
               animate={{ 
                 rotate: 360,
                 scale: isHoveringMint ? 1.05 : 1
