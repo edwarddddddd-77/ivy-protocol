@@ -1,25 +1,161 @@
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { motion } from "framer-motion";
+import { Activity, Cpu, Database, Zap } from "lucide-react";
+import { useState } from "react";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Best Practices, Design Guide and Common Pitfalls
- */
 export default function Home() {
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  const [isHoveringMint, setIsHoveringMint] = useState(false);
+  const [pidValue, setPidValue] = useState(1.2);
+
+  // Simulate PID fluctuation
+  useState(() => {
+    const interval = setInterval(() => {
+      setPidValue(prev => +(prev + (Math.random() * 0.04 - 0.02)).toFixed(3));
+    }, 200);
+    return () => clearInterval(interval);
+  });
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
+    <div className="min-h-screen w-full bg-slate-950 text-white overflow-hidden relative selection:bg-[#39FF14] selection:text-black">
+      {/* Background Elements */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[url('/images/circuit-bg.png')] opacity-20 bg-repeat bg-[length:400px_400px]"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/50 to-slate-950"></div>
+        <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-slate-950 to-transparent"></div>
+      </div>
+
+      <main className="relative z-10 container h-screen flex flex-col md:flex-row items-center justify-center md:justify-between gap-12 pt-20 md:pt-0">
+        
+        {/* Typography Layer (Left) */}
+        <div className="flex-1 flex flex-col items-start space-y-8 max-w-2xl">
+          <motion.div 
+            initial={{ opacity: 0, x: -50 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="space-y-2"
+          >
+            <div className="flex items-center gap-2 text-[#39FF14] font-mono text-sm tracking-widest uppercase">
+              <span className="w-2 h-2 bg-[#39FF14] animate-pulse"></span>
+              <span>System Online // V2.5</span>
+            </div>
+            
+            <h1 className="text-6xl md:text-8xl font-display font-bold uppercase leading-[0.9] tracking-tight text-[#E0E0E0] mix-blend-difference relative group cursor-default">
+              <GlitchText text="Let Time" /> <br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400">Be Your Ally</span>
+            </h1>
+            
+            <p className="text-lg md:text-xl text-slate-400 font-mono max-w-lg border-l-2 border-[#39FF14]/30 pl-4">
+              The First PID-Controlled Structured Bond Protocol.
+              <br />
+              <span className="text-[#39FF14] text-sm opacity-80">Algorithmic Stability // Yield Optimization</span>
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.6 }}
+          >
+            <Button 
+              className="relative group overflow-hidden bg-transparent border border-[#39FF14] text-[#39FF14] hover:text-black hover:bg-[#39FF14] transition-all duration-200 px-8 py-6 text-lg font-mono tracking-widest uppercase cyber-border"
+              onMouseEnter={() => setIsHoveringMint(true)}
+              onMouseLeave={() => setIsHoveringMint(false)}
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                <Zap className={`w-5 h-5 ${isHoveringMint ? 'animate-bounce' : ''}`} />
+                [ Initialize Mint ]
+              </span>
+              {/* Glitch Effect Overlay */}
+              <div className={`absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>
+            </Button>
+          </motion.div>
+        </div>
+
+        {/* Reactor Core (Center/Right) */}
+        <div className="flex-1 relative flex items-center justify-center w-full max-w-xl aspect-square">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 1.2, ease: "circOut" }}
+            className="relative w-full h-full flex items-center justify-center"
+          >
+            {/* Glow Behind */}
+            <div className="absolute inset-0 bg-[#39FF14] blur-[100px] opacity-20 animate-pulse"></div>
+            
+            {/* Reactor Image */}
+            <motion.img 
+              src="/images/reactor-core.png" 
+              alt="Reactor Core" 
+              className="relative z-10 w-[80%] md:w-full object-contain drop-shadow-[0_0_30px_rgba(57,255,20,0.3)]"
+              animate={{ 
+                rotate: 360,
+                scale: isHoveringMint ? 1.05 : 1
+              }}
+              transition={{ 
+                rotate: { duration: 60, repeat: Infinity, ease: "linear" },
+                scale: { duration: 0.3 }
+              }}
+            />
+            
+            {/* Orbital Rings */}
+            <div className="absolute inset-0 border border-[#39FF14]/20 rounded-full w-[110%] h-[110%] -top-[5%] -left-[5%] animate-[spin_20s_linear_infinite_reverse]"></div>
+            <div className="absolute inset-0 border border-dashed border-[#39FF14]/30 rounded-full w-[130%] h-[130%] -top-[15%] -left-[15%] animate-[spin_40s_linear_infinite]"></div>
+          </motion.div>
+        </div>
+
+        {/* Data HUD Layer (Floating Glass Cards) */}
+        <motion.div 
+          initial={{ opacity: 0, x: 50 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.8, duration: 0.8 }}
+          className="absolute bottom-8 right-4 md:right-12 flex flex-col gap-4 z-20"
+        >
+          <GlassCard label="APY" value="128%" sub="Dynamic" icon={<Activity className="w-4 h-4 text-[#39FF14]" />} glow />
+          <GlassCard label="TVL" value="$5,240,000" sub="Verified" icon={<Database className="w-4 h-4 text-slate-400" />} />
+          <GlassCard label="Nodes" value="842/1000" sub="Genesis" icon={<Cpu className="w-4 h-4 text-slate-400" />} />
+          <GlassCard label="PID Status" value={`${pidValue}x`} sub="Boost Active" icon={<Zap className="w-4 h-4 text-[#39FF14]" />} glow />
+        </motion.div>
       </main>
+      
+      {/* Scanline Overlay */}
+      <div className="fixed inset-0 pointer-events-none z-50 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] opacity-20"></div>
     </div>
+  );
+}
+
+function GlitchText({ text }: { text: string }) {
+  return (
+    <span className="relative inline-block">
+      <span className="relative z-10">{text}</span>
+      <span className="absolute top-0 left-0 -z-10 w-full h-full text-[#39FF14] opacity-0 animate-glitch-1">{text}</span>
+      <span className="absolute top-0 left-0 -z-10 w-full h-full text-red-500 opacity-0 animate-glitch-2">{text}</span>
+    </span>
+  );
+}
+
+function GlassCard({ label, value, sub, icon, glow = false }: { label: string, value: string, sub: string, icon: React.ReactNode, glow?: boolean }) {
+  return (
+    <motion.div 
+      whileHover={{ x: -5, backgroundColor: glow ? 'rgba(57, 255, 20, 0.1)' : 'rgba(15, 23, 42, 0.6)' }}
+      className={`
+      relative overflow-hidden backdrop-blur-md border p-4 w-64 transition-colors duration-300
+      ${glow ? 'bg-[#39FF14]/5 border-[#39FF14]/50 shadow-[0_0_15px_rgba(57,255,20,0.15)]' : 'bg-slate-900/40 border-white/10'}
+    `}>
+      <div className="flex justify-between items-start mb-2">
+        <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">{label}</span>
+        {icon}
+      </div>
+      <div className={`text-2xl font-display font-bold ${glow ? 'text-[#39FF14] text-glow' : 'text-white'}`}>
+        {value}
+      </div>
+      <div className="text-xs font-mono text-slate-500 mt-1 flex items-center gap-1">
+        <span className={`w-1.5 h-1.5 rounded-full ${glow ? 'bg-[#39FF14] animate-pulse' : 'bg-slate-600'}`}></span>
+        {sub}
+      </div>
+      
+      {/* Corner Accents */}
+      <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#39FF14]/50"></div>
+      <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#39FF14]/50"></div>
+    </motion.div>
   );
 }
