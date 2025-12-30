@@ -12,5 +12,8 @@ module.exports = {
       chainId: 97,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     }
+  },
+  etherscan: {
+    apiKey: process.env.BSCSCAN_API_KEY,
   }
 };
