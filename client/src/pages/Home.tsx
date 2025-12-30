@@ -73,7 +73,7 @@ export default function Home() {
       <main className="relative z-10 container h-screen flex flex-col md:flex-row items-center justify-center md:justify-between gap-12 pt-20 md:pt-0">
         
         {/* Typography Layer (Left) */}
-        <div className="flex-1 flex flex-col items-start space-y-8 max-w-2xl">
+        <div className="flex-1 flex flex-col items-start space-y-8 max-w-2xl z-30">
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
@@ -103,25 +103,25 @@ export default function Home() {
             transition={{ delay: 0.4, duration: 0.6 }}
           >
             <Button 
-              className="relative group overflow-hidden bg-transparent border border-[#39FF14] text-[#39FF14] hover:text-black hover:bg-[#39FF14] transition-all duration-200 px-8 py-6 text-lg font-mono tracking-widest uppercase cyber-border"
+              className="relative group overflow-hidden bg-[#39FF14] border border-[#39FF14] text-black hover:scale-105 hover:shadow-[0_0_30px_#39FF14] transition-all duration-300 px-8 py-6 text-lg font-bold font-mono tracking-widest uppercase cyber-border"
               onMouseEnter={() => setIsHoveringMint(true)}
               onMouseLeave={() => setIsHoveringMint(false)}
             >
               <span className="relative z-10 flex items-center gap-2">
-                <Zap className={`w-5 h-5 ${isHoveringMint ? 'animate-bounce' : ''}`} />
+                <Zap className={`w-5 h-5 fill-black ${isHoveringMint ? 'animate-bounce' : ''}`} />
                 [ Initialize Mint ]
               </span>
               {/* Glitch Effect Overlay */}
-              <div className={`absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>
+              <div className={`absolute inset-0 bg-white/40 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-12`}></div>
             </Button>
           </motion.div>
         </div>
 
         {/* Reactor Core (Center/Right) */}
-        <div className="flex-1 relative flex items-center justify-center w-full max-w-xl aspect-square">
+        <div className="flex-1 relative flex items-center justify-center w-full max-w-xl aspect-square z-10 pointer-events-none">
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
+            animate={{ opacity: 1, scale: 0.85 }}
             transition={{ duration: 1.2, ease: "circOut" }}
             className="relative w-full h-full flex items-center justify-center"
           >
@@ -135,10 +135,10 @@ export default function Home() {
               className="relative z-10 w-[80%] md:w-full object-contain drop-shadow-[0_0_30px_rgba(57,255,20,0.3)] mix-blend-screen [mask-image:radial-gradient(closest-side,white_65%,transparent_95%)]"
               animate={{ 
                 rotate: 360,
-                scale: isHoveringMint ? 1.05 : 1
+                scale: isHoveringMint ? 0.9 : 0.85
               }}
               transition={{ 
-                rotate: { duration: 60, repeat: Infinity, ease: "linear" },
+                rotate: { duration: 60 / pidValue, repeat: Infinity, ease: "linear" },
                 scale: { duration: 0.3 }
               }}
             />
@@ -151,15 +151,19 @@ export default function Home() {
 
         {/* Data HUD Layer (Floating Glass Cards) */}
         <motion.div 
-          initial={{ opacity: 0, x: 50 }}
-          animate={{ opacity: 1, x: 0 }}
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.8 }}
-          className="absolute bottom-8 right-4 md:right-12 flex flex-col gap-4 z-20"
+          className="absolute bottom-8 right-8 md:right-12 flex flex-row gap-4 z-40 items-end"
         >
-          <GlassCard label="APY" value="128%" sub="Dynamic" icon={<Activity className="w-4 h-4 text-[#39FF14]" />} glow />
-          <GlassCard label="TVL" value="$5,240,000" sub="Verified" icon={<Database className="w-4 h-4 text-slate-400" />} />
-          <GlassCard label="Nodes" value="842/1000" sub="Genesis" icon={<Cpu className="w-4 h-4 text-slate-400" />} />
-          <GlassCard label="PID Status" value={`${pidValue}x`} sub="Boost Active" icon={<Zap className="w-4 h-4 text-[#39FF14]" />} glow />
+          <div className="flex flex-col gap-4">
+            <GlassCard label="APY" value="128%" sub="Dynamic" icon={<Activity className="w-4 h-4 text-[#39FF14]" />} glow />
+            <GlassCard label="TVL" value="$5.24M" sub="Verified" icon={<Database className="w-4 h-4 text-slate-400" />} />
+          </div>
+          <div className="flex flex-col gap-4">
+            <GlassCard label="Nodes" value="842" sub="Genesis" icon={<Cpu className="w-4 h-4 text-slate-400" />} />
+            <GlassCard label="PID Status" value={`${pidValue}x`} sub="Boost Active" icon={<Zap className="w-4 h-4 text-[#39FF14]" />} glow />
+          </div>
         </motion.div>
       </main>
       
