@@ -189,8 +189,8 @@ export default function Home() {
             transition={{ duration: 1.2, ease: "circOut" }}
             className="relative w-full h-full flex items-center justify-center"
           >
-            {/* Glow Behind */}
-            <div className="absolute inset-0 bg-[#39FF14] blur-[100px] opacity-20 animate-pulse"></div>
+              {/* Glow Behind */}
+            <div className={`absolute inset-0 blur-[100px] opacity-20 animate-pulse ${isRedAlert ? 'bg-red-600' : 'bg-[#39FF14]'}`}></div>
             
             {/* CSS Reactor Component */}
             <div className="relative w-64 h-64 md:w-96 md:h-96 flex items-center justify-center [perspective:1000px]">
@@ -204,20 +204,20 @@ export default function Home() {
                 {[0, 45, 90, 135].map((deg) => (
                   <div
                     key={deg}
-                    className="absolute inset-0 rounded-full border-2 border-[#39FF14]/40 shadow-[0_0_15px_#39FF14]"
+                    className={`absolute inset-0 rounded-full border-2 ${isRedAlert ? 'border-red-500/40 shadow-[0_0_15px_#ff0000]' : 'border-[#39FF14]/40 shadow-[0_0_15px_#39FF14]'}`}
                     style={{ transform: `rotateY(${deg}deg)` }}
                   ></div>
                 ))}
                 {/* Horizontal Rings */}
-                <div className="absolute top-[10%] left-[10%] w-[80%] h-[80%] rounded-full border border-[#39FF14]/20 [transform:rotateX(90deg)]"></div>
-                <div className="absolute top-[25%] left-[25%] w-[50%] h-[50%] rounded-full border border-[#39FF14]/20 [transform:rotateX(90deg)]"></div>
+                <div className={`absolute top-[10%] left-[10%] w-[80%] h-[80%] rounded-full border [transform:rotateX(90deg)] ${isRedAlert ? 'border-red-500/20' : 'border-[#39FF14]/20'}`}></div>
+                <div className={`absolute top-[25%] left-[25%] w-[50%] h-[50%] rounded-full border [transform:rotateX(90deg)] ${isRedAlert ? 'border-red-500/20' : 'border-[#39FF14]/20'}`}></div>
                 
                 {/* Core Energy Block */}
-                <div className="absolute inset-0 m-auto w-1/3 h-1/3 bg-[#39FF14] rounded-full blur-md opacity-50 animate-pulse"></div>
+                <div className={`absolute inset-0 m-auto w-1/3 h-1/3 rounded-full blur-md opacity-50 animate-pulse ${isRedAlert ? 'bg-red-600' : 'bg-[#39FF14]'}`}></div>
               </motion.div>
               
               {/* External Floating Orbit */}
-              <div className="absolute inset-0 border border-[#39FF14]/20 rounded-full w-[120%] h-[120%] -top-[10%] -left-[10%] animate-[spin_10s_linear_infinite_reverse]"></div>
+              <div className={`absolute inset-0 border rounded-full w-[120%] h-[120%] -top-[10%] -left-[10%] animate-[spin_10s_linear_infinite_reverse] ${isRedAlert ? 'border-red-500/20' : 'border-[#39FF14]/20'}`}></div>
             </div>
           </motion.div>
         </div>
