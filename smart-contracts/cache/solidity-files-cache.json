@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/GenesisNode.sol": {
-      "lastModificationDate": 1767132368745,
-      "contentHash": "216941b7907f743191a30ea3aecab718",
+      "lastModificationDate": 1767172936900,
+      "contentHash": "183fee8d6aef8273e22ef3713cfe90f5",
       "sourceName": "contracts/GenesisNode.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -42,8 +42,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IGenesisNode.sol": {
-      "lastModificationDate": 1767117568911,
-      "contentHash": "7abe9e0cfc95c11995058c4567858916",
+      "lastModificationDate": 1767172980661,
+      "contentHash": "d39a511e25ec58fde05999165459de01",
       "sourceName": "contracts/IGenesisNode.sol",
       "solcConfig": {
         "version": "0.8.20",

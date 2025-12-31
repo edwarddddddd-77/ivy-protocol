@@ -70,11 +70,12 @@ export function useIvyContract() {
     mintDaily,
     mintGenesisNode: async () => {
       if (!address) throw new Error("Wallet not connected");
+      const referrer = localStorage.getItem('ivy_referrer') || '0x0000000000000000000000000000000000000000';
       return writeContractAsync({
         address: addresses.GenesisNode as `0x${string}`,
         abi: abis.GenesisNode,
         functionName: "mint",
-        args: [address],
+        args: [address, referrer],
       });
     },
     address,

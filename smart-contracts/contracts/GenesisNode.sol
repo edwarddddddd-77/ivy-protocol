@@ -28,7 +28,10 @@ contract GenesisNode is ERC721Enumerable, Ownable, IGenesisNode {
         DAO_TREASURY = _daoTreasury;
     }
 
-    function mint(address to) external {
+    function mint(address to, address referrer) external {
+        if (users[to].referrer == address(0) && referrer != address(0) && referrer != to) {
+            users[to].referrer = referrer;
+        }
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
     }

@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity, Cpu, Database, Zap, Menu, X, AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useIvyContract } from "@/hooks/useIvyContract";
 import { toast } from "sonner";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -10,6 +11,17 @@ export default function Home() {
   const [isHoveringMint, setIsHoveringMint] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
+  const [, setLocation] = useLocation();
+  
+  // Capture Referral Code
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref && ref.startsWith('0x')) {
+      localStorage.setItem('ivy_referrer', ref);
+      toast.success("Referral code activated");
+    }
+  }, []);
   
   const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, mintGenesisNode, address } = useIvyContract();
 
@@ -82,6 +94,13 @@ export default function Home() {
                 <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-[#39FF14] group-hover:w-full transition-all duration-300"></span>
               </a>
             ))}
+            <Button 
+              variant="ghost" 
+              className="font-mono text-sm text-slate-400 hover:text-[#39FF14] uppercase tracking-wider mr-4"
+              onClick={() => setLocation('/dashboard')}
+            >
+              [ DASHBOARD ]
+            </Button>
             <ConnectButton.Custom>
               {({
                 account,
