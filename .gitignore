@@ -104,3 +104,11 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# Hardhat
+smart-contracts/artifacts
+smart-contracts/cache
+smart-contracts/typechain-types
+
+# Vercel
+.vercel
