@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { Skeleton } from '@/components/ui/skeleton';
 import addresses from '@/contracts/addresses.json';
 import GenesisNodeABI from '@/contracts/abis.json';
 
+// Placeholder image for NFT
+const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/0a0a0a/39FF14?text=IVY%0AGENESIS%0ANODE';
+
 export function MyNodes() {
   const { address, isConnected } = useAccount();
-  const [retryCount, setRetryCount] = useState(0);
+  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
-  const { data: balance, isLoading, isError, error, refetch } = useReadContract({
+  // Data reading logic - KEEP THIS FIXED VERSION
+  const { data: balance, isLoading, refetch } = useReadContract({
     address: addresses.GenesisNode as `0x${string}`,
     abi: GenesisNodeABI.GenesisNode,
     functionName: 'balanceOf',
@@ -16,7 +22,7 @@ export function MyNodes() {
       enabled: !!address && isConnected,
       staleTime: 0,
       gcTime: 0,
-      refetchInterval: 3000,
+      refetchInterval: 5000,
       retry: 5,
       retryDelay: 1000,
     }
@@ -25,70 +31,100 @@ export function MyNodes() {
   // Force refetch on mount and address change
   useEffect(() => {
     if (address && isConnected) {
-      console.log('[MyNodes] Forcing refetch for address:', address);
       refetch();
     }
   }, [address, isConnected, refetch]);
 
-  // Manual retry button handler
-  const handleRetry = () => {
-    setRetryCount(prev => prev + 1);
-    refetch();
+  const handleImageError = (tokenId: number) => {
+    setImageErrors(prev => ({ ...prev, [tokenId]: true }));
   };
 
   const count = balance ? Number(balance) : 0;
+  const tokenIds = Array.from({ length: count }, (_, i) => i);
 
+  // Not connected state
+  if (!isConnected) {
+    return (
+      <GlassCard className="p-8 text-center border-dashed border-white/20">
+        <div className="text-6xl mb-4 opacity-20">🔗</div>
+        <h3 className="text-xl font-bold text-white mb-2">WALLET NOT CONNECTED</h3>
+        <p className="text-gray-400">
+          Connect your wallet to view your Genesis Nodes.
+        </p>
+      </GlassCard>
+    );
+  }
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48 bg-white/5" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Skeleton className="h-72 w-full bg-white/5" />
+          <Skeleton className="h-72 w-full bg-white/5" />
+        </div>
+      </div>
+    );
+  }
+
+  // No nodes state
+  if (count === 0) {
+    return (
+      <GlassCard className="p-8 text-center border-dashed border-white/20">
+        <div className="text-6xl mb-4 opacity-20">∅</div>
+        <h3 className="text-xl font-bold text-white mb-2">NO NODES DETECTED</h3>
+        <p className="text-gray-400 mb-4">
+          Initialize a Genesis Node to begin earning yield.
+        </p>
+        <button 
+          onClick={() => refetch()}
+          className="px-4 py-2 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors text-sm"
+        >
+          Refresh
+        </button>
+      </GlassCard>
+    );
+  }
+
+  // Success state - show nodes
   return (
-    <div style={{ padding: '20px', backgroundColor: '#111', color: '#fff', fontFamily: 'monospace', border: '2px solid #333' }}>
-      <h2 style={{ color: 'lime' }}>DEBUG: MyNodes Component</h2>
-      <hr />
-      <p><strong>Connected:</strong> {isConnected ? '✅ YES' : '❌ NO'}</p>
-      <p><strong>Address:</strong> {address || 'N/A'}</p>
-      <p><strong>Contract:</strong> {addresses.GenesisNode}</p>
-      <hr />
-      <p><strong>isLoading:</strong> {isLoading ? '⏳ YES' : 'NO'}</p>
-      <p><strong>isError:</strong> {isError ? '❌ YES' : 'NO'}</p>
-      {isError && <p style={{ color: 'red' }}><strong>Error:</strong> {error?.message}</p>}
-      <p><strong>Raw Balance:</strong> {balance?.toString() ?? 'undefined'}</p>
-      <p style={{ fontSize: '24px', color: 'yellow' }}><strong>Count: {count}</strong></p>
-      <p><strong>Retry Count:</strong> {retryCount}</p>
-      <button 
-        onClick={handleRetry}
-        style={{ 
-          padding: '10px 20px', 
-          backgroundColor: 'lime', 
-          color: 'black', 
-          border: 'none', 
-          cursor: 'pointer',
-          marginTop: '10px',
-          fontWeight: 'bold'
-        }}
-      >
-        🔄 FORCE REFRESH
-      </button>
-      <hr />
-      {count > 0 ? (
-        <div>
-          <h3 style={{ color: 'lime' }}>✅ YOUR NODES ({count}):</h3>
-          {Array.from({ length: count }, (_, i) => (
-            <div key={i} style={{ border: '3px solid lime', margin: '10px', padding: '10px', backgroundColor: '#000' }}>
-              <p style={{ color: 'lime' }}>Token Index: {i}</p>
+    <div className="space-y-6">
+      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+        <span className="text-primary">◈</span> MY NODES ({count})
+      </h3>
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {tokenIds.map((id) => (
+          <GlassCard key={id} className="group hover:border-primary/50 transition-colors overflow-hidden">
+            <div className="aspect-square bg-black/50 relative overflow-hidden">
+              {/* Native img tag with onError fallback */}
               <img 
-                src="https://placehold.co/200x200/000/0f0?text=NODE" 
-                alt={`Node ${i}`}
-                width="200"
-                height="200"
+                src={imageErrors[id] ? PLACEHOLDER_IMAGE : PLACEHOLDER_IMAGE}
+                alt={`Genesis Node #${id}`}
+                width={400}
+                height={400}
+                onError={() => handleImageError(id)}
+                className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                 style={{ display: 'block' }}
               />
+              <div className="absolute top-2 right-2 bg-black/80 text-primary text-xs px-2 py-1 rounded font-mono border border-primary/20">
+                ACTIVE
+              </div>
+              <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-mono border border-white/20">
+                #{id}
+              </div>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div>
-          <p style={{ color: 'orange', fontSize: '18px' }}>⚠️ NO NODES FOUND (Count = 0)</p>
-          <p style={{ color: '#888', fontSize: '12px' }}>If you own NFTs, click FORCE REFRESH or check RPC connection.</p>
-        </div>
-      )}
+            <div className="p-4">
+              <h4 className="font-bold text-white mb-1">GENESIS NODE #{id}</h4>
+              <div className="flex justify-between text-xs text-gray-400 font-mono">
+                <span>BOOST: 1.1x</span>
+                <span>TIER: ALPHA</span>
+              </div>
+            </div>
+          </GlassCard>
+        ))}
+      </div>
     </div>
   );
 }
