@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useAccount, useReadContract, useReadContracts } from 'wagmi';
+import { useEffect, useState, useCallback } from 'react';
+import { useAccount, useReadContract, usePublicClient } from 'wagmi';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import addresses from '@/contracts/addresses.json';
@@ -8,61 +8,80 @@ import GenesisNodeABI from '@/contracts/abis.json';
 export function MyNodes() {
   const { address, isConnected } = useAccount();
   const [tokenIds, setTokenIds] = useState<number[]>([]);
+  const [isLoadingTokens, setIsLoadingTokens] = useState(false);
+  const publicClient = usePublicClient();
 
   // 1. Get Balance with refetch
-  const { data: balance, isLoading: balanceLoading, refetch: refetchBalance } = useReadContract({
+  const { data: balance, isLoading: balanceLoading, refetch: refetchBalance, error: balanceError } = useReadContract({
     address: addresses.GenesisNode as `0x${string}`,
     abi: GenesisNodeABI.GenesisNode,
     functionName: 'balanceOf',
     args: [address],
     query: {
       enabled: !!address && isConnected,
-      refetchInterval: 3000, // Refetch every 3 seconds
-      staleTime: 1000, // Consider data stale after 1 second
-    }
-  });
-
-  // 2. Get total supply to help with token enumeration
-  const { data: totalSupply } = useReadContract({
-    address: addresses.GenesisNode as `0x${string}`,
-    abi: GenesisNodeABI.GenesisNode,
-    functionName: 'totalSupply',
-    query: {
-      enabled: isConnected,
       refetchInterval: 5000,
+      staleTime: 2000,
+      retry: 3,
     }
   });
 
-  // 3. Force refetch when wallet connects or address changes
+  // 2. Force refetch when wallet connects or address changes
   useEffect(() => {
     if (address && isConnected) {
+      console.log('[MyNodes] Wallet connected, refetching balance...');
       refetchBalance();
     }
   }, [address, isConnected, refetchBalance]);
 
-  // 4. Fetch token IDs owned by user using tokenOfOwnerByIndex
-  useEffect(() => {
-    const fetchTokenIds = async () => {
-      if (!balance || !address) {
-        setTokenIds([]);
-        return;
+  // 3. Fetch actual token IDs using tokenOfOwnerByIndex
+  const fetchTokenIds = useCallback(async () => {
+    if (!balance || !address || !publicClient) {
+      setTokenIds([]);
+      return;
+    }
+    
+    const count = Number(balance);
+    console.log('[MyNodes] Balance:', count);
+    
+    if (count === 0) {
+      setTokenIds([]);
+      return;
+    }
+
+    setIsLoadingTokens(true);
+    
+    try {
+      const ids: number[] = [];
+      
+      for (let i = 0; i < count; i++) {
+        try {
+          const tokenId = await publicClient.readContract({
+            address: addresses.GenesisNode as `0x${string}`,
+            abi: GenesisNodeABI.GenesisNode,
+            functionName: 'tokenOfOwnerByIndex',
+            args: [address, BigInt(i)],
+          });
+          ids.push(Number(tokenId));
+          console.log(`[MyNodes] Token at index ${i}: ${tokenId}`);
+        } catch (err) {
+          console.error(`[MyNodes] Error fetching token at index ${i}:`, err);
+        }
       }
       
-      const count = Number(balance);
-      if (count === 0) {
-        setTokenIds([]);
-        return;
-      }
-
-      // For ERC721Enumerable, we can use tokenOfOwnerByIndex
-      // But since we don't have multicall setup, we'll use a simple approach
-      // Just show the count and let user know they have nodes
-      const ids = Array.from({ length: count }, (_, i) => i);
       setTokenIds(ids);
-    };
+      console.log('[MyNodes] All token IDs:', ids);
+    } catch (err) {
+      console.error('[MyNodes] Error fetching token IDs:', err);
+      // Fallback: just use sequential IDs based on balance
+      setTokenIds(Array.from({ length: count }, (_, i) => i));
+    } finally {
+      setIsLoadingTokens(false);
+    }
+  }, [balance, address, publicClient]);
 
+  useEffect(() => {
     fetchTokenIds();
-  }, [balance, address]);
+  }, [fetchTokenIds]);
 
   // Debug logging
   useEffect(() => {
@@ -70,11 +89,12 @@ export function MyNodes() {
       address,
       isConnected,
       balance: balance?.toString(),
-      totalSupply: totalSupply?.toString(),
+      balanceError: balanceError?.message,
       tokenIds,
-      contractAddress: addresses.GenesisNode
+      contractAddress: addresses.GenesisNode,
+      isLoadingTokens,
     });
-  }, [address, isConnected, balance, totalSupply, tokenIds]);
+  }, [address, isConnected, balance, balanceError, tokenIds, isLoadingTokens]);
 
   if (!isConnected) {
     return (
@@ -88,8 +108,38 @@ export function MyNodes() {
     );
   }
 
-  if (balanceLoading) {
-    return <Skeleton className="h-64 w-full bg-white/5" />;
+  if (balanceLoading || isLoadingTokens) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48 bg-white/5" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Skeleton className="h-64 w-full bg-white/5" />
+          <Skeleton className="h-64 w-full bg-white/5" />
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state if balance fetch failed
+  if (balanceError) {
+    return (
+      <GlassCard className="p-8 text-center border-dashed border-red-500/20">
+        <div className="text-6xl mb-4 opacity-20">⚠️</div>
+        <h3 className="text-xl font-bold text-red-400 mb-2">CONNECTION ERROR</h3>
+        <p className="text-gray-400 mb-2">
+          Failed to fetch your node balance. Please try again.
+        </p>
+        <p className="text-xs text-gray-500 font-mono mb-4">
+          {balanceError.message}
+        </p>
+        <button 
+          onClick={() => refetchBalance()}
+          className="px-4 py-2 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
+        >
+          Retry
+        </button>
+      </GlassCard>
+    );
   }
 
   if (tokenIds.length === 0) {
@@ -101,10 +151,10 @@ export function MyNodes() {
           Initialize a Genesis Node to begin earning yield.
         </p>
         <p className="text-xs text-gray-500 font-mono">
-          Contract: {addresses.GenesisNode.slice(0, 10)}...
+          Contract: {addresses.GenesisNode.slice(0, 10)}...{addresses.GenesisNode.slice(-6)}
         </p>
         <p className="text-xs text-gray-500 font-mono">
-          Your Balance: {balance?.toString() || '0'}
+          Raw Balance: {balance?.toString() ?? 'undefined'}
         </p>
       </GlassCard>
     );
@@ -120,18 +170,17 @@ export function MyNodes() {
         {tokenIds.map((id) => (
           <GlassCard key={id} className="group hover:border-primary/50 transition-colors">
             <div className="aspect-square bg-black/50 relative overflow-hidden">
-              {/* NFT Image from Vercel API */}
+              {/* NFT Image - use placeholder directly for reliability */}
               <img 
-                src={`https://ivy-protocol.vercel.app/api/nft/${id}`} 
-                alt={`Node #${id}`}
+                src="https://placehold.co/600x400/000000/00ff00/png?text=IVY+GENESIS+NODE"
+                alt={`Genesis Node #${id}`}
                 className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                onError={(e) => {
-                  // Fallback to placeholder if image fails
-                  (e.target as HTMLImageElement).src = 'https://placehold.co/600x400/000000/00ff00/png?text=IVY+NODE';
-                }}
               />
               <div className="absolute top-2 right-2 bg-black/80 text-primary text-xs px-2 py-1 rounded font-mono border border-primary/20">
                 ACTIVE
+              </div>
+              <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-mono border border-white/20">
+                ID: {id}
               </div>
             </div>
             <div className="p-4">
