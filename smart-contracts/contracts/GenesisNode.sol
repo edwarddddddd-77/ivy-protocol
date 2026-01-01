@@ -22,10 +22,19 @@ contract GenesisNode is ERC721Enumerable, Ownable, IGenesisNode {
     uint256 public constant MAX_DEPTH = 20; // Gas Limit Protection
 
     uint256 private _nextTokenId;
+    string private _baseTokenURI;
 
     constructor(address _daoTreasury) ERC721("Ivy Genesis Node", "IVY-NODE") Ownable(msg.sender) {
         require(_daoTreasury != address(0), "Invalid Treasury");
         DAO_TREASURY = _daoTreasury;
+    }
+
+    function _baseURI() internal view virtual override returns (string memory) {
+        return _baseTokenURI;
+    }
+
+    function setBaseURI(string calldata baseURI) external onlyOwner {
+        _baseTokenURI = baseURI;
     }
 
     function mint(address to, address referrer) external {
