@@ -14,12 +14,11 @@ import {
 } from "@tanstack/react-query";
 import { ReactNode } from 'react';
 
-// Multiple RPC endpoints for reliability
+// High-availability RPC endpoints - publicnode first (most reliable)
 const bscTestnetRpcs = [
-  'https://data-seed-prebsc-1-s1.binance.org:8545/',
-  'https://data-seed-prebsc-2-s1.binance.org:8545/',
-  'https://data-seed-prebsc-1-s2.binance.org:8545/',
-  'https://bsc-testnet.public.blastapi.io',
+  'https://bsc-testnet.publicnode.com',
+  'https://data-seed-prebsc-1-s1.binance.org:8545',
+  'https://data-seed-prebsc-2-s1.binance.org:8545',
 ];
 
 const config = getDefaultConfig({
@@ -28,20 +27,27 @@ const config = getDefaultConfig({
   chains: [bscTestnet],
   transports: {
     [bscTestnet.id]: fallback(
-      bscTestnetRpcs.map(url => http(url, { timeout: 10000 }))
+      bscTestnetRpcs.map(url => http(url, { 
+        timeout: 15000,
+        retryCount: 3,
+        retryDelay: 1000,
+      }))
     ),
   },
   ssr: false,
 });
 
+// Disable all caching - force fresh reads
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
-      retry: 3,
+      refetchOnMount: true,
+      retry: 5,
       retryDelay: 1000,
-      staleTime: 2000,
+      staleTime: 0,
+      gcTime: 0,
     },
   },
 });
