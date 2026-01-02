@@ -9,7 +9,7 @@ import GenesisNodeABI from '@/contracts/abis.json';
 const NFT_API_BASE = '/api/nft';
 
 // Default stable image - placehold.co is bulletproof
-const DEFAULT_IMAGE = 'https://i.imgur.com/8b8578q.jpeg';
+const DEFAULT_IMAGE = '/assets/nft/genesis.png';
 
 // Fallback image when primary fails - elegant "Generating..." placeholder
 const FALLBACK_IMAGE = 'https://placehold.co/600x600/2a0a3b/00ff9d/png?text=Generating...&font=montserrat';
