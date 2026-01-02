@@ -24,19 +24,52 @@ export default function Dashboard() {
 
   if (!isConnected) {
     return (
-      <div className="min-h-screen pt-24 px-4 flex items-center justify-center">
+      <div className="min-h-screen pt-24 px-4 flex items-center justify-center" style={{ background: '#0a0a0f' }}>
+        {/* Absolute positioned raw HTML link - guaranteed to be visible and clickable */}
+        <a 
+          href="/" 
+          style={{
+            position: 'fixed',
+            top: '20px',
+            left: '20px',
+            zIndex: 99999,
+            padding: '12px 24px',
+            backgroundColor: '#39FF14',
+            color: '#000',
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            fontSize: '14px',
+            textDecoration: 'none',
+            borderRadius: '4px',
+            boxShadow: '0 0 20px rgba(57, 255, 20, 0.5)',
+            cursor: 'pointer'
+          }}
+        >
+          ← RETURN HOME
+        </a>
+        
         <GlassCard className="p-8 text-center max-w-md w-full">
           <h2 className="text-2xl font-bold text-primary mb-4">ACCESS DENIED</h2>
           <p className="text-gray-400 mb-6">
             Secure connection required. Please connect your wallet to access the command center.
           </p>
-          <Button 
-            variant="outline" 
-            className="font-mono text-sm border-primary text-primary hover:bg-primary hover:text-black uppercase tracking-wider"
-            onClick={() => setLocation('/')}
+          {/* Backup button inside card */}
+          <a 
+            href="/"
+            style={{
+              display: 'inline-block',
+              padding: '10px 20px',
+              border: '2px solid #39FF14',
+              color: '#39FF14',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              textDecoration: 'none',
+              borderRadius: '4px',
+              marginTop: '10px'
+            }}
           >
             [ RETURN HOME ]
-          </Button>
+          </a>
         </GlassCard>
       </div>
     );

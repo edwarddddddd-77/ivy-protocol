@@ -5,15 +5,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import addresses from '@/contracts/addresses.json';
 import GenesisNodeABI from '@/contracts/abis.json';
 
-// Error fallback image - red error indicator instead of green placeholder
-const ERROR_FALLBACK_IMAGE = 'https://placehold.co/400x400/1a1a1a/ff3333?text=IMAGE%0ALOAD%0AERROR';
-
 // API endpoint for NFT metadata
 const NFT_API_BASE = '/api/nft';
 
+// Default stable image - placehold.co is bulletproof
+const DEFAULT_IMAGE = 'https://placehold.co/600x600/2a0a3b/00ff9d/png?text=IVY+GENESIS%0A[+ACTIVE+]&font=montserrat';
+
 export function MyNodes() {
   const { address, isConnected } = useAccount();
-  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
   const [nftImages, setNftImages] = useState<Record<number, string>>({});
 
   // Data reading logic - KEEP THIS FIXED VERSION
@@ -56,13 +55,6 @@ export function MyNodes() {
       });
     }
   }, [balance]);
-
-  const handleImageError = (tokenId: number, imageUrl: string) => {
-    // Debug output for troubleshooting
-    console.error("NFT Image Load Failed:", imageUrl, "Token ID:", tokenId);
-    // Set error state - will show red error image instead of rolling back to green placeholder
-    setImageErrors(prev => ({ ...prev, [tokenId]: true }));
-  };
 
   const count = balance ? Number(balance) : 0;
   const tokenIds = Array.from({ length: count }, (_, i) => i);
@@ -121,20 +113,18 @@ export function MyNodes() {
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {tokenIds.map((id) => {
-          // Use API image if available, otherwise show error fallback if error occurred
-          const imageUrl = nftImages[id] || ERROR_FALLBACK_IMAGE;
-          const displayImage = imageErrors[id] ? ERROR_FALLBACK_IMAGE : imageUrl;
+          // Use API image if available, fallback to default stable image
+          const imageUrl = nftImages[id] || DEFAULT_IMAGE;
           
           return (
             <GlassCard key={id} className="group hover:border-primary/50 transition-colors overflow-hidden">
               <div className="aspect-square bg-black/50 relative overflow-hidden">
-                {/* Native img tag - NO fallback to old green placeholder */}
+                {/* Native img tag - no onError handler, let browser show broken icon if needed */}
                 <img 
-                  src={displayImage}
+                  src={imageUrl}
                   alt={`Genesis Node #${id}`}
                   width={400}
                   height={400}
-                  onError={() => handleImageError(id, imageUrl)}
                   className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                   style={{ display: 'block' }}
                 />
