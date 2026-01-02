@@ -2,11 +2,23 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./IGenesisNode.sol";
 import "./IPriceOracle.sol";
 import "./IvyToken.sol";
 
-contract IvyCore is Ownable {
+/**
+ * @title IvyCore
+ * @dev Core protocol contract managing token emissions, yield calculations, and economic controls.
+ * 
+ * Key Features:
+ * - Time-based yield calculation with multiple boost factors
+ * - Halving mechanism based on total supply
+ * - Circuit breaker for price stability
+ * - Integration with GenesisNode for referral rewards
+ */
+contract IvyCore is Ownable, ReentrancyGuard {
+    // ============ Constants ============
     uint256 public constant PID_K = 2 * 1e18;
     uint256 public constant PID_MIN = 1e17;
     uint256 public constant PID_MAX = 15 * 1e17;
@@ -16,10 +28,18 @@ contract IvyCore is Ownable {
     uint256 public constant HARD_CAP = 100_000_000 * 1e18;
     
     uint256 public constant BASE_DAILY_MINT = 30_000 * 1e18;
+    
+    // Marketing boost based on paid mint (users who paid for NFT get extra boost)
+    uint256 public constant PAID_MINT_BOOST = 175 * 1e15;  // +1.75% for paid minters
 
+    // ============ State Variables ============
     uint256 public totalMinted;
     uint256 public currentEmissionFactor = 1e18;
     uint256 public lastHalvingMintAmount;
+    
+    // Track last claim time for each user (daily claim limit)
+    mapping(address => uint256) public lastClaimTime;
+    uint256 public constant CLAIM_COOLDOWN = 24 hours;
     
     enum CircuitLevel { NONE, YELLOW, ORANGE, RED }
     struct CircuitBreakerStatus {
@@ -46,11 +66,35 @@ contract IvyCore is Ownable {
     mapping(uint256 => Candle) public candles;
     uint256 public currentCandleStartTime;
 
+    // ============ Events ============
+    event DailyMintClaimed(address indexed user, uint256 amount, uint256 timestamp);
+    event CircuitBreakerTriggered(CircuitLevel level, uint256 price, uint256 forcedAlpha);
+    event CircuitBreakerReset();
+    event HalvingOccurred(uint256 newEmissionFactor, uint256 totalMinted);
+
+    // ============ Constructor ============
     constructor(address _genesisNode, address _oracle, address _ivyToken) Ownable(msg.sender) {
         genesisNode = IGenesisNode(_genesisNode);
         oracle = IPriceOracle(_oracle);
         ivyToken = IvyToken(_ivyToken);
     }
+
+    // ============ Admin Functions ============
+    
+    /**
+     * @dev Update contract references (for upgrades)
+     */
+    function setContracts(
+        address _genesisNode,
+        address _oracle,
+        address _ivyToken
+    ) external onlyOwner {
+        if (_genesisNode != address(0)) genesisNode = IGenesisNode(_genesisNode);
+        if (_oracle != address(0)) oracle = IPriceOracle(_oracle);
+        if (_ivyToken != address(0)) ivyToken = IvyToken(_ivyToken);
+    }
+
+    // ============ Core Functions ============
 
     function updateCandle(uint256 currentPrice) public {
         uint256 timestamp = block.timestamp;
@@ -77,13 +121,28 @@ contract IvyCore is Ownable {
         }
     }
 
+    /**
+     * @dev Calculate daily mint amount for a user
+     * 
+     * Formula: (baseMint * emissionFactor * alpha * totalMultiplier) / 1e54
+     * 
+     * Multipliers:
+     * - nodeBoost: +10% if user holds Genesis Node NFT
+     * - marketingBoost: +1.75% for users who paid for NFT (based on totalMinted > 0)
+     */
     function calculateDailyMint(address user) public view returns (uint256) {
         uint256 baseMint = BASE_DAILY_MINT;
         uint256 emissionFactor = currentEmissionFactor;
         uint256 alpha = getEffectiveAlpha();
         
+        // Get NFT holding boost (+10% if holds NFT)
         uint256 nodeBoost = genesisNode.getSelfBoost(user);
-        uint256 marketingBoost = 175 * 1e15;
+        
+        // Marketing boost for paid minters
+        // Check if user has minted any NFTs (paid users)
+        (, , uint256 totalUserMinted, ) = genesisNode.getUserInfo(user);
+        uint256 marketingBoost = totalUserMinted > 0 ? PAID_MINT_BOOST : 0;
+        
         uint256 totalMultiplier = 1e18 + nodeBoost + marketingBoost;
 
         return (baseMint * emissionFactor * alpha * totalMultiplier) / 1e54;
@@ -97,9 +156,6 @@ contract IvyCore is Ownable {
     }
 
     function checkCircuitBreaker(uint256 currentPrice, uint256 referencePrice1H) external {
-        // For demo purposes, allow owner to trigger check
-        // require(msg.sender == address(oracle) || msg.sender == owner(), "Auth failed");
-        
         if (currentPrice >= referencePrice1H) return;
         uint256 dropPercentage = ((referencePrice1H - currentPrice) * 100) / referencePrice1H;
 
@@ -120,6 +176,7 @@ contract IvyCore is Ownable {
             forcedAlpha: alpha,
             isActive: true
         });
+        emit CircuitBreakerTriggered(level, price, alpha);
     }
 
     function tryUnlockCircuitBreaker() external {
@@ -159,24 +216,81 @@ contract IvyCore is Ownable {
 
     function _resetCircuitBreaker() internal {
         delete cbStatus;
+        emit CircuitBreakerReset();
     }
     
     function calculatePID() internal view returns (uint256) {
+        // TODO: Implement real PID controller based on price deviation
         return 12 * 1e17; // Mock PID = 1.2
     }
 
-    function mintDaily(address user) external {
+    /**
+     * @dev Claim daily IVY token rewards
+     * Users can only claim once per 24 hours
+     */
+    function mintDaily(address user) external nonReentrant {
+        require(user != address(0), "Invalid user");
+        require(
+            block.timestamp >= lastClaimTime[user] + CLAIM_COOLDOWN,
+            "Claim cooldown not elapsed"
+        );
+        
         uint256 amount = calculateDailyMint(user);
         require(totalMinted + amount <= HARD_CAP, "Hard Cap Reached");
+        
+        // Update claim time
+        lastClaimTime[user] = block.timestamp;
         
         totalMinted += amount;
         ivyToken.mint(user, amount);
         genesisNode.distributeRewards(user, amount);
         
+        emit DailyMintClaimed(user, amount, block.timestamp);
+        
         // Halving Logic
         if (totalMinted - lastHalvingMintAmount >= HALVING_THRESHOLD) {
             currentEmissionFactor = (currentEmissionFactor * HALVING_DECAY) / 100;
             lastHalvingMintAmount = totalMinted;
+            emit HalvingOccurred(currentEmissionFactor, totalMinted);
         }
+    }
+
+    // ============ View Functions ============
+
+    /**
+     * @dev Check if user can claim daily rewards
+     */
+    function canClaim(address user) external view returns (bool, uint256) {
+        uint256 nextClaimTime = lastClaimTime[user] + CLAIM_COOLDOWN;
+        if (block.timestamp >= nextClaimTime) {
+            return (true, 0);
+        }
+        return (false, nextClaimTime - block.timestamp);
+    }
+
+    /**
+     * @dev Get estimated daily reward for a user
+     */
+    function getEstimatedDailyReward(address user) external view returns (uint256) {
+        return calculateDailyMint(user);
+    }
+
+    /**
+     * @dev Get current protocol stats
+     */
+    function getProtocolStats() external view returns (
+        uint256 _totalMinted,
+        uint256 _hardCap,
+        uint256 _emissionFactor,
+        bool _circuitBreakerActive,
+        CircuitLevel _cbLevel
+    ) {
+        return (
+            totalMinted,
+            HARD_CAP,
+            currentEmissionFactor,
+            cbStatus.isActive,
+            cbStatus.level
+        );
     }
 }
