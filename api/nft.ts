@@ -11,7 +11,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const metadata = {
     name: `Genesis Node #${id}`,
     description: "A Genesis Node in the Ivy Protocol network. Grants governance rights and yield boosting capabilities.",
-    image: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663266857239/tMavgNNFfVwcUBEd.jpg", // Cyberpunk abstract image 
+    image: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=1974&auto=format&fit=crop", // Stable Unsplash purple cyberpunk image
     external_url: "https://ivy-protocol.vercel.app",
     attributes: [
       {
@@ -32,6 +32,9 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       }
     ]
   };
+
+  // Disable API cache to prevent stale data
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
   // Set CORS headers to allow fetching from anywhere (marketplaces, etc.)
   res.setHeader('Access-Control-Allow-Credentials', 'true');
