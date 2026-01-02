@@ -30,6 +30,13 @@ export default function Dashboard() {
           <p className="text-gray-400 mb-6">
             Secure connection required. Please connect your wallet to access the command center.
           </p>
+          <Button 
+            variant="outline" 
+            className="font-mono text-sm border-primary text-primary hover:bg-primary hover:text-black uppercase tracking-wider"
+            onClick={() => setLocation('/')}
+          >
+            [ RETURN HOME ]
+          </Button>
         </GlassCard>
       </div>
     );

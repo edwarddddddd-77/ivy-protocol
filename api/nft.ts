@@ -11,7 +11,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const metadata = {
     name: `Genesis Node #${id}`,
     description: "A Genesis Node in the Ivy Protocol network. Grants governance rights and yield boosting capabilities.",
-    image: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=1974&auto=format&fit=crop", // Stable Unsplash purple cyberpunk image
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Pleiades_large.jpg/800px-Pleiades_large.jpg", // Stable Wikimedia purple nebula image
     external_url: "https://ivy-protocol.vercel.app",
     attributes: [
       {

@@ -5,12 +5,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import addresses from '@/contracts/addresses.json';
 import GenesisNodeABI from '@/contracts/abis.json';
 
-// Placeholder image for NFT
-const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/0a0a0a/39FF14?text=IVY%0AGENESIS%0ANODE';
+// Error fallback image - red error indicator instead of green placeholder
+const ERROR_FALLBACK_IMAGE = 'https://placehold.co/400x400/1a1a1a/ff3333?text=IMAGE%0ALOAD%0AERROR';
+
+// API endpoint for NFT metadata
+const NFT_API_BASE = '/api/nft';
 
 export function MyNodes() {
   const { address, isConnected } = useAccount();
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
+  const [nftImages, setNftImages] = useState<Record<number, string>>({});
 
   // Data reading logic - KEEP THIS FIXED VERSION
   const { data: balance, isLoading, refetch } = useReadContract({
@@ -35,7 +39,28 @@ export function MyNodes() {
     }
   }, [address, isConnected, refetch]);
 
-  const handleImageError = (tokenId: number) => {
+  // Fetch NFT metadata from API
+  useEffect(() => {
+    const count = balance ? Number(balance) : 0;
+    if (count > 0) {
+      Array.from({ length: count }, (_, i) => i).forEach(async (tokenId) => {
+        try {
+          const response = await fetch(`${NFT_API_BASE}/${tokenId}`);
+          const metadata = await response.json();
+          if (metadata.image) {
+            setNftImages(prev => ({ ...prev, [tokenId]: metadata.image }));
+          }
+        } catch (error) {
+          console.error(`Failed to fetch NFT metadata for token ${tokenId}:`, error);
+        }
+      });
+    }
+  }, [balance]);
+
+  const handleImageError = (tokenId: number, imageUrl: string) => {
+    // Debug output for troubleshooting
+    console.error("NFT Image Load Failed:", imageUrl, "Token ID:", tokenId);
+    // Set error state - will show red error image instead of rolling back to green placeholder
     setImageErrors(prev => ({ ...prev, [tokenId]: true }));
   };
 
@@ -95,35 +120,41 @@ export function MyNodes() {
       </h3>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {tokenIds.map((id) => (
-          <GlassCard key={id} className="group hover:border-primary/50 transition-colors overflow-hidden">
-            <div className="aspect-square bg-black/50 relative overflow-hidden">
-              {/* Native img tag with onError fallback */}
-              <img 
-                src={imageErrors[id] ? PLACEHOLDER_IMAGE : PLACEHOLDER_IMAGE}
-                alt={`Genesis Node #${id}`}
-                width={400}
-                height={400}
-                onError={() => handleImageError(id)}
-                className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                style={{ display: 'block' }}
-              />
-              <div className="absolute top-2 right-2 bg-black/80 text-primary text-xs px-2 py-1 rounded font-mono border border-primary/20">
-                ACTIVE
+        {tokenIds.map((id) => {
+          // Use API image if available, otherwise show error fallback if error occurred
+          const imageUrl = nftImages[id] || ERROR_FALLBACK_IMAGE;
+          const displayImage = imageErrors[id] ? ERROR_FALLBACK_IMAGE : imageUrl;
+          
+          return (
+            <GlassCard key={id} className="group hover:border-primary/50 transition-colors overflow-hidden">
+              <div className="aspect-square bg-black/50 relative overflow-hidden">
+                {/* Native img tag - NO fallback to old green placeholder */}
+                <img 
+                  src={displayImage}
+                  alt={`Genesis Node #${id}`}
+                  width={400}
+                  height={400}
+                  onError={() => handleImageError(id, imageUrl)}
+                  className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                  style={{ display: 'block' }}
+                />
+                <div className="absolute top-2 right-2 bg-black/80 text-primary text-xs px-2 py-1 rounded font-mono border border-primary/20">
+                  ACTIVE
+                </div>
+                <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-mono border border-white/20">
+                  #{id}
+                </div>
               </div>
-              <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-mono border border-white/20">
-                #{id}
+              <div className="p-4">
+                <h4 className="font-bold text-white mb-1">GENESIS NODE #{id}</h4>
+                <div className="flex justify-between text-xs text-gray-400 font-mono">
+                  <span>BOOST: 1.1x</span>
+                  <span>TIER: ALPHA</span>
+                </div>
               </div>
-            </div>
-            <div className="p-4">
-              <h4 className="font-bold text-white mb-1">GENESIS NODE #{id}</h4>
-              <div className="flex justify-between text-xs text-gray-400 font-mono">
-                <span>BOOST: 1.1x</span>
-                <span>TIER: ALPHA</span>
-              </div>
-            </div>
-          </GlassCard>
-        ))}
+            </GlassCard>
+          );
+        })}
       </div>
     </div>
   );
