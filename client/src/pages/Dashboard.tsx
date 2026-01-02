@@ -7,7 +7,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { GlitchText } from '@/components/ui/GlitchText';
-import { MyNodes } from '@/components/MyNodes';
+import { IdentityPanel } from '@/components/IdentityPanel';
+import { TreasuryPanel } from '@/components/TreasuryPanel';
+import { FaucetPanel } from '@/components/FaucetPanel';
 import { ReferralCenter } from '@/components/ReferralCenter';
 
 export default function Dashboard() {
@@ -150,49 +152,166 @@ export default function Dashboard() {
       </AnimatePresence>
 
       <div className="pt-32 px-4 pb-12">
-      <div className="container mx-auto max-w-6xl space-y-8">
-        <div className="flex flex-col md:flex-row justify-between items-end border-b border-primary/20 pb-6">
-          <div>
-            <div className="flex items-center gap-2 text-primary/60 text-sm mb-1 font-mono">
-              <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-              COMMAND CENTER // AUTHORIZED
+        <div className="container mx-auto max-w-7xl space-y-8">
+          {/* Header Section */}
+          <div className="flex flex-col md:flex-row justify-between items-end border-b border-primary/20 pb-6">
+            <div>
+              <div className="flex items-center gap-2 text-primary/60 text-sm mb-1 font-mono">
+                <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                COMMAND CENTER // DUAL-TRACK SYSTEM
+              </div>
+              <GlitchText 
+                text="OPERATOR DASHBOARD" 
+                className="text-4xl md:text-5xl font-bold text-white"
+              />
             </div>
-            <GlitchText 
-              text="OPERATOR DASHBOARD" 
-              className="text-4xl md:text-5xl font-bold text-white"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Assets */}
-          <div className="lg:col-span-2 space-y-8">
-            <MyNodes />
           </div>
 
-          {/* Right Column: Stats & Referral */}
-          <div className="space-y-8">
-            <ReferralCenter />
-            
-            {/* Placeholder for future stats */}
+          {/* Dual Track Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Track A: Identity & Access */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+            >
+              <div className="mb-4 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary font-bold">A</div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">TRACK A</h2>
+                  <p className="text-xs text-gray-500">Identity & Privileges</p>
+                </div>
+              </div>
+              <IdentityPanel />
+            </motion.div>
+
+            {/* Track B: Treasury & Yield */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+            >
+              <div className="mb-4 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold">B</div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">TRACK B</h2>
+                  <p className="text-xs text-gray-500">Treasury & Yield</p>
+                </div>
+              </div>
+              <TreasuryPanel />
+            </motion.div>
+          </div>
+
+          {/* Bottom Section: Referral + Faucet */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Referral Center */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+              className="lg:col-span-2"
+            >
+              <ReferralCenter />
+            </motion.div>
+
+            {/* Faucet Panel */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+            >
+              <FaucetPanel />
+            </motion.div>
+          </div>
+
+          {/* Architecture Diagram */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.5 }}
+          >
             <GlassCard className="p-6">
               <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <span className="text-primary">◈</span> YIELD STATUS
+                <span className="text-primary">◈</span> DUAL-TRACK ARCHITECTURE
               </h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 bg-black/40 rounded border border-white/5">
-                  <span className="text-gray-400 text-sm">Total Claimed</span>
-                  <span className="text-primary font-mono">0.00 IVY</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                {/* Track A Explanation */}
+                <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center text-primary text-xs font-bold">A</div>
+                    <span className="font-bold text-white">GENESIS NODE (Identity)</span>
+                  </div>
+                  <ul className="space-y-2 text-gray-400 text-xs">
+                    <li className="flex items-start gap-2">
+                      <span className="text-primary">•</span>
+                      <span>ERC721 NFT - Max Supply: 1,386</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-primary">•</span>
+                      <span>Price: 1,000 USDT → 100% TeamOps</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-primary">•</span>
+                      <span>Self Boost: +10% mining power</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-primary">•</span>
+                      <span>Team Aura: +2% to downlines</span>
+                    </li>
+                  </ul>
                 </div>
-                <div className="flex justify-between items-center p-3 bg-black/40 rounded border border-white/5">
-                  <span className="text-gray-400 text-sm">Pending Rewards</span>
-                  <span className="text-primary font-mono">0.00 IVY</span>
+
+                {/* Track B Explanation */}
+                <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded bg-blue-500/20 flex items-center justify-center text-blue-400 text-xs font-bold">B</div>
+                    <span className="font-bold text-white">IVY BOND (Investment)</span>
+                  </div>
+                  <ul className="space-y-2 text-gray-400 text-xs">
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-400">•</span>
+                      <span>Deposit USDT → Earn IVY tokens</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-400">•</span>
+                      <span>50% → Liquidity Pool</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-400">•</span>
+                      <span>40% → RWA Wallet</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-400">•</span>
+                      <span>10% → Reserve Pool</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Referral Rewards */}
+              <div className="mt-4 p-4 rounded-lg bg-purple-500/5 border border-purple-500/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="font-bold text-white">REFERRAL REWARDS</span>
+                  <span className="text-xs text-gray-500">(from Mining Pool, not principal)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-purple-400">10%</div>
+                    <div className="text-xs text-gray-500">L1 Direct</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-purple-400">5%</div>
+                    <div className="text-xs text-gray-500">L2 Indirect</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-purple-400">2%</div>
+                    <div className="text-xs text-gray-500">L3+ Infinite</div>
+                  </div>
                 </div>
               </div>
             </GlassCard>
-          </div>
+          </motion.div>
         </div>
-      </div>
       </div>
     </div>
   );
