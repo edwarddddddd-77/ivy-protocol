@@ -3,262 +3,291 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./IGenesisNode.sol";
-import "./IPriceOracle.sol";
 import "./IvyToken.sol";
 
 /**
  * @title IvyCore
- * @dev Core protocol contract managing token emissions, yield calculations, and economic controls.
+ * @dev Core Mining & Reward Distribution Contract for Ivy Protocol
  * 
- * Key Features:
- * - Time-based yield calculation with multiple boost factors
- * - Halving mechanism based on total supply
- * - Circuit breaker for price stability
- * - Integration with GenesisNode for referral rewards
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                    DUAL-TRACK ARCHITECTURE                    ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  Track 1: GenesisNode (Identity) - NFT holding boosts         ║
+ * ║  Track 2: IvyBond (Investment) - Deposit-based bond power     ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ * 
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                 REFERRAL REWARD STRUCTURE                     ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  L1 (Direct):     10% of mining output                        ║
+ * ║  L2 (Indirect):   5% of mining output                         ║
+ * ║  L3+ (Infinite):  2% differential (first qualified upline)    ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  IMPORTANT: Rewards come from Mining Pool, NOT user principal ║
+ * ╚═══════════════════════════════════════════════════════════════╝
  */
 contract IvyCore is Ownable, ReentrancyGuard {
+    
+    // ============ Interfaces ============
+    
+    interface IGenesisNode {
+        function getReferrer(address user) external view returns (address);
+        function getSelfBoost(address user) external view returns (uint256);
+        function getTeamAura(address user) external view returns (uint256);
+        function getTotalBoost(address user) external view returns (uint256);
+        function balanceOf(address user) external view returns (uint256);
+    }
+    
+    interface IIvyBond {
+        function getBondPower(address user) external view returns (uint256);
+        function hasBond(address user) external view returns (bool);
+    }
+
     // ============ Constants ============
-    uint256 public constant PID_K = 2 * 1e18;
-    uint256 public constant PID_MIN = 1e17;
-    uint256 public constant PID_MAX = 15 * 1e17;
     
-    uint256 public constant HALVING_THRESHOLD = 7_000_000 * 1e18;
-    uint256 public constant HALVING_DECAY = 95;
-    uint256 public constant HARD_CAP = 100_000_000 * 1e18;
+    /// @notice Referral reward rates in basis points
+    uint256 public constant L1_RATE = 1000;          // 10%
+    uint256 public constant L2_RATE = 500;           // 5%
+    uint256 public constant INFINITE_RATE = 200;     // 2%
+    uint256 public constant BASIS_POINTS = 10000;
     
-    uint256 public constant BASE_DAILY_MINT = 30_000 * 1e18;
+    /// @notice Maximum referral depth for gas protection
+    uint256 public constant MAX_REFERRAL_DEPTH = 20;
     
-    // Marketing boost based on paid mint (users who paid for NFT get extra boost)
-    uint256 public constant PAID_MINT_BOOST = 175 * 1e15;  // +1.75% for paid minters
+    /// @notice Base daily emission rate
+    uint256 public constant BASE_DAILY_EMISSION = 30_000 * 10**18;
+    
+    /// @notice Hard cap for total IVY supply
+    uint256 public constant HARD_CAP = 100_000_000 * 10**18;
+    
+    /// @notice Halving threshold
+    uint256 public constant HALVING_THRESHOLD = 7_000_000 * 10**18;
+    uint256 public constant HALVING_DECAY = 95;  // 95% of previous rate
+    
+    /// @notice Claim cooldown period
+    uint256 public constant CLAIM_COOLDOWN = 24 hours;
 
     // ============ State Variables ============
-    uint256 public totalMinted;
-    uint256 public currentEmissionFactor = 1e18;
-    uint256 public lastHalvingMintAmount;
     
-    // Track last claim time for each user (daily claim limit)
-    mapping(address => uint256) public lastClaimTime;
-    uint256 public constant CLAIM_COOLDOWN = 24 hours;
-    
-    enum CircuitLevel { NONE, YELLOW, ORANGE, RED }
-    struct CircuitBreakerStatus {
-        CircuitLevel level;
-        uint256 triggerTime;
-        uint256 triggerPrice;
-        uint256 forcedAlpha;
-        bool isActive;
-    }
-    CircuitBreakerStatus public cbStatus;
-
-    IGenesisNode public genesisNode;
-    IPriceOracle public oracle;
     IvyToken public ivyToken;
-
-    struct Candle {
-        uint256 open;
-        uint256 close;
-        uint256 high;
-        uint256 low;
-        bool isFinalized;
-    }
-
-    mapping(uint256 => Candle) public candles;
-    uint256 public currentCandleStartTime;
+    IGenesisNode public genesisNode;
+    IIvyBond public ivyBond;
+    
+    /// @notice Current emission factor (decreases with halving)
+    uint256 public emissionFactor = 10**18;  // 1.0 in 18 decimals
+    
+    /// @notice Total IVY minted
+    uint256 public totalMinted;
+    
+    /// @notice Last halving checkpoint
+    uint256 public lastHalvingMinted;
+    
+    /// @notice User claim tracking
+    mapping(address => uint256) public lastClaimTime;
+    mapping(address => uint256) public totalClaimed;
+    
+    /// @notice Referral rewards tracking
+    mapping(address => uint256) public referralRewardsEarned;
 
     // ============ Events ============
-    event DailyMintClaimed(address indexed user, uint256 amount, uint256 timestamp);
-    event CircuitBreakerTriggered(CircuitLevel level, uint256 price, uint256 forcedAlpha);
-    event CircuitBreakerReset();
+    
+    event RewardsClaimed(
+        address indexed user,
+        uint256 baseReward,
+        uint256 boostedReward,
+        uint256 timestamp
+    );
+    event ReferralRewardPaid(
+        address indexed referrer,
+        address indexed from,
+        uint256 amount,
+        uint256 level
+    );
     event HalvingOccurred(uint256 newEmissionFactor, uint256 totalMinted);
 
     // ============ Constructor ============
-    constructor(address _genesisNode, address _oracle, address _ivyToken) Ownable(msg.sender) {
-        genesisNode = IGenesisNode(_genesisNode);
-        oracle = IPriceOracle(_oracle);
+    
+    constructor(address _ivyToken) Ownable(msg.sender) {
         ivyToken = IvyToken(_ivyToken);
     }
 
     // ============ Admin Functions ============
     
-    /**
-     * @dev Update contract references (for upgrades)
-     */
-    function setContracts(
-        address _genesisNode,
-        address _oracle,
-        address _ivyToken
-    ) external onlyOwner {
-        if (_genesisNode != address(0)) genesisNode = IGenesisNode(_genesisNode);
-        if (_oracle != address(0)) oracle = IPriceOracle(_oracle);
-        if (_ivyToken != address(0)) ivyToken = IvyToken(_ivyToken);
-    }
-
-    // ============ Core Functions ============
-
-    function updateCandle(uint256 currentPrice) public {
-        uint256 timestamp = block.timestamp;
-        uint256 hourStart = (timestamp / 1 hours) * 1 hours;
-
-        if (hourStart > currentCandleStartTime) {
-            if (currentCandleStartTime != 0) {
-                candles[currentCandleStartTime].isFinalized = true;
-            }
-
-            currentCandleStartTime = hourStart;
-            candles[hourStart] = Candle({
-                open: currentPrice,
-                close: currentPrice,
-                high: currentPrice,
-                low: currentPrice,
-                isFinalized: false
-            });
-        } else {
-            Candle storage c = candles[currentCandleStartTime];
-            c.close = currentPrice;
-            if (currentPrice > c.high) c.high = currentPrice;
-            if (currentPrice < c.low) c.low = currentPrice;
-        }
-    }
-
-    /**
-     * @dev Calculate daily mint amount for a user
-     * 
-     * Formula: (baseMint * emissionFactor * alpha * totalMultiplier) / 1e54
-     * 
-     * Multipliers:
-     * - nodeBoost: +10% if user holds Genesis Node NFT
-     * - marketingBoost: +1.75% for users who paid for NFT (based on totalMinted > 0)
-     */
-    function calculateDailyMint(address user) public view returns (uint256) {
-        uint256 baseMint = BASE_DAILY_MINT;
-        uint256 emissionFactor = currentEmissionFactor;
-        uint256 alpha = getEffectiveAlpha();
-        
-        // Get NFT holding boost (+10% if holds NFT)
-        uint256 nodeBoost = genesisNode.getSelfBoost(user);
-        
-        // Marketing boost for paid minters
-        // Check if user has minted any NFTs (paid users)
-        (, , uint256 totalUserMinted, ) = genesisNode.getUserInfo(user);
-        uint256 marketingBoost = totalUserMinted > 0 ? PAID_MINT_BOOST : 0;
-        
-        uint256 totalMultiplier = 1e18 + nodeBoost + marketingBoost;
-
-        return (baseMint * emissionFactor * alpha * totalMultiplier) / 1e54;
-    }
-
-    function getEffectiveAlpha() public view returns (uint256) {
-        if (cbStatus.isActive) {
-            return cbStatus.forcedAlpha;
-        }
-        return calculatePID();
-    }
-
-    function checkCircuitBreaker(uint256 currentPrice, uint256 referencePrice1H) external {
-        if (currentPrice >= referencePrice1H) return;
-        uint256 dropPercentage = ((referencePrice1H - currentPrice) * 100) / referencePrice1H;
-
-        if (dropPercentage >= 25) {
-            _triggerCircuitBreaker(CircuitLevel.RED, 5 * 1e16, currentPrice);
-        } else if (dropPercentage >= 15) {
-            _triggerCircuitBreaker(CircuitLevel.ORANGE, 2 * 1e17, currentPrice);
-        } else if (dropPercentage > 10) {
-            _triggerCircuitBreaker(CircuitLevel.YELLOW, 5 * 1e17, currentPrice);
-        }
-    }
-
-    function _triggerCircuitBreaker(CircuitLevel level, uint256 alpha, uint256 price) internal {
-        cbStatus = CircuitBreakerStatus({
-            level: level,
-            triggerTime: block.timestamp,
-            triggerPrice: price,
-            forcedAlpha: alpha,
-            isActive: true
-        });
-        emit CircuitBreakerTriggered(level, price, alpha);
-    }
-
-    function tryUnlockCircuitBreaker() external {
-        require(cbStatus.isActive, "CB not active");
-        
-        uint256 timeElapsed = block.timestamp - cbStatus.triggerTime;
-        uint256 currentPrice = oracle.getLatestPrice();
-
-        if (cbStatus.level == CircuitLevel.YELLOW) {
-            require(timeElapsed >= 4 hours, "L1: Locked");
-            require(currentPrice > cbStatus.triggerPrice, "L1: Price not recovered");
-            _resetCircuitBreaker();
-        } 
-        else if (cbStatus.level == CircuitLevel.ORANGE) {
-            require(timeElapsed >= 12 hours, "L2: Locked");
-            
-            uint256 currentHour = (block.timestamp / 1 hours) * 1 hours;
-            uint256 oneHourAgo = currentHour - 1 hours;
-            uint256 twoHoursAgo = currentHour - 2 hours;
-
-            Candle memory c1 = candles[oneHourAgo];
-            Candle memory c2 = candles[twoHoursAgo];
-            
-            require(c1.open > 0 && c2.open > 0, "L2: No candle data");
-            
-            bool isGreen1 = c1.close > c1.open;
-            bool isGreen2 = c2.close > c2.open;
-            
-            require(isGreen1 && isGreen2, "L2: Need 2 consecutive 1H green candles");
-            _resetCircuitBreaker();
-        } 
-        else if (cbStatus.level == CircuitLevel.RED) {
-            require(timeElapsed >= 24 hours, "L3: Hard Locked");
-            _resetCircuitBreaker();
-        }
-    }
-
-    function _resetCircuitBreaker() internal {
-        delete cbStatus;
-        emit CircuitBreakerReset();
+    function setGenesisNode(address _genesisNode) external onlyOwner {
+        require(_genesisNode != address(0), "Invalid address");
+        genesisNode = IGenesisNode(_genesisNode);
     }
     
-    function calculatePID() internal view returns (uint256) {
-        // TODO: Implement real PID controller based on price deviation
-        return 12 * 1e17; // Mock PID = 1.2
+    function setIvyBond(address _ivyBond) external onlyOwner {
+        require(_ivyBond != address(0), "Invalid address");
+        ivyBond = IIvyBond(_ivyBond);
+    }
+
+    // ============ Core Mining Functions ============
+
+    /**
+     * @dev Calculate user's daily mining reward
+     * 
+     * Formula: baseEmission * bondPower * (1 + totalBoost) * emissionFactor
+     * 
+     * Boost Components:
+     * - selfBoost: +10% if user holds Genesis Node NFT
+     * - teamAura: +2% if user's referrer holds Genesis Node NFT
+     * 
+     * @param user User address
+     * @return Calculated reward amount
+     */
+    function calculateDailyReward(address user) public view returns (uint256) {
+        // Must have a bond to earn rewards
+        if (address(ivyBond) == address(0) || !ivyBond.hasBond(user)) {
+            return 0;
+        }
+        
+        // Get bond power (determines base share)
+        uint256 bondPower = ivyBond.getBondPower(user);
+        if (bondPower == 0) return 0;
+        
+        // Get boost from GenesisNode (selfBoost + teamAura)
+        uint256 totalBoost = 0;
+        if (address(genesisNode) != address(0)) {
+            totalBoost = genesisNode.getTotalBoost(user);
+        }
+        
+        // Calculate base reward (simplified: bondPower / 1000 * baseEmission)
+        // In production, this would be based on share of total bond power
+        uint256 baseReward = (bondPower * BASE_DAILY_EMISSION) / (1000 * 10**18);
+        
+        // Apply boost multiplier (BASIS_POINTS + boost)
+        uint256 boostedReward = (baseReward * (BASIS_POINTS + totalBoost)) / BASIS_POINTS;
+        
+        // Apply emission factor (halving)
+        uint256 finalReward = (boostedReward * emissionFactor) / 10**18;
+        
+        return finalReward;
     }
 
     /**
-     * @dev Claim daily IVY token rewards
-     * Users can only claim once per 24 hours
+     * @dev Claim daily mining rewards
+     * 
+     * Flow:
+     * 1. Calculate user's reward
+     * 2. Mint IVY to user
+     * 3. Distribute referral rewards from Mining Pool
+     * 4. Check and apply halving if needed
      */
-    function mintDaily(address user) external nonReentrant {
-        require(user != address(0), "Invalid user");
+    function claimRewards() external nonReentrant {
+        address user = msg.sender;
+        
         require(
             block.timestamp >= lastClaimTime[user] + CLAIM_COOLDOWN,
             "Claim cooldown not elapsed"
         );
         
-        uint256 amount = calculateDailyMint(user);
-        require(totalMinted + amount <= HARD_CAP, "Hard Cap Reached");
+        uint256 reward = calculateDailyReward(user);
+        require(reward > 0, "No rewards to claim");
+        require(totalMinted + reward <= HARD_CAP, "Hard cap reached");
         
         // Update claim time
         lastClaimTime[user] = block.timestamp;
         
-        totalMinted += amount;
-        ivyToken.mint(user, amount);
-        genesisNode.distributeRewards(user, amount);
+        // Mint reward to user
+        ivyToken.mint(user, reward);
+        totalMinted += reward;
+        totalClaimed[user] += reward;
         
-        emit DailyMintClaimed(user, amount, block.timestamp);
+        emit RewardsClaimed(user, reward, reward, block.timestamp);
         
-        // Halving Logic
-        if (totalMinted - lastHalvingMintAmount >= HALVING_THRESHOLD) {
-            currentEmissionFactor = (currentEmissionFactor * HALVING_DECAY) / 100;
-            lastHalvingMintAmount = totalMinted;
-            emit HalvingOccurred(currentEmissionFactor, totalMinted);
+        // Distribute referral rewards (from Mining Pool, NOT from user's reward)
+        _distributeReferralRewards(user, reward);
+        
+        // Check halving
+        _checkHalving();
+    }
+
+    /**
+     * @dev Distribute referral rewards based on mining output
+     * 
+     * ┌─────────────────────────────────────────────────────────┐
+     * │              REFERRAL REWARD DISTRIBUTION               │
+     * ├─────────────────────────────────────────────────────────┤
+     * │  When User claims 1000 IVY:                             │
+     * │  ├── L1 Referrer gets: 100 IVY (10%) - NEW MINT        │
+     * │  ├── L2 Referrer gets: 50 IVY (5%) - NEW MINT          │
+     * │  └── L3+ First qualified: 20 IVY (2%) - NEW MINT       │
+     * │                                                         │
+     * │  IMPORTANT: These are ADDITIONAL mints from Mining Pool │
+     * │             User still receives full 1000 IVY           │
+     * └─────────────────────────────────────────────────────────┘
+     * 
+     * @param user User who triggered the reward
+     * @param miningOutput Amount of IVY the user mined
+     */
+    function _distributeReferralRewards(address user, uint256 miningOutput) internal {
+        if (address(genesisNode) == address(0)) return;
+        
+        address l1 = genesisNode.getReferrer(user);
+        if (l1 == address(0)) return;
+        
+        // L1 Reward (10%)
+        uint256 l1Reward = (miningOutput * L1_RATE) / BASIS_POINTS;
+        if (l1Reward > 0 && totalMinted + l1Reward <= HARD_CAP) {
+            ivyToken.mint(l1, l1Reward);
+            totalMinted += l1Reward;
+            referralRewardsEarned[l1] += l1Reward;
+            emit ReferralRewardPaid(l1, user, l1Reward, 1);
+        }
+        
+        // L2 Reward (5%)
+        address l2 = genesisNode.getReferrer(l1);
+        if (l2 == address(0)) return;
+        
+        uint256 l2Reward = (miningOutput * L2_RATE) / BASIS_POINTS;
+        if (l2Reward > 0 && totalMinted + l2Reward <= HARD_CAP) {
+            ivyToken.mint(l2, l2Reward);
+            totalMinted += l2Reward;
+            referralRewardsEarned[l2] += l2Reward;
+            emit ReferralRewardPaid(l2, user, l2Reward, 2);
+        }
+        
+        // L3+ Infinite Differential (2%) - First qualified upline with NFT
+        address cursor = genesisNode.getReferrer(l2);
+        uint256 depth = 0;
+        
+        while (cursor != address(0) && depth < MAX_REFERRAL_DEPTH) {
+            // Check if this upline holds a Genesis Node
+            if (genesisNode.balanceOf(cursor) > 0) {
+                uint256 infiniteReward = (miningOutput * INFINITE_RATE) / BASIS_POINTS;
+                if (infiniteReward > 0 && totalMinted + infiniteReward <= HARD_CAP) {
+                    ivyToken.mint(cursor, infiniteReward);
+                    totalMinted += infiniteReward;
+                    referralRewardsEarned[cursor] += infiniteReward;
+                    emit ReferralRewardPaid(cursor, user, infiniteReward, 3);
+                }
+                break;  // Only first qualified upline gets infinite reward
+            }
+            cursor = genesisNode.getReferrer(cursor);
+            depth++;
+        }
+    }
+
+    /**
+     * @dev Check and apply halving if threshold reached
+     */
+    function _checkHalving() internal {
+        if (totalMinted - lastHalvingMinted >= HALVING_THRESHOLD) {
+            emissionFactor = (emissionFactor * HALVING_DECAY) / 100;
+            lastHalvingMinted = totalMinted;
+            emit HalvingOccurred(emissionFactor, totalMinted);
         }
     }
 
     // ============ View Functions ============
 
     /**
-     * @dev Check if user can claim daily rewards
+     * @dev Check if user can claim rewards
+     * @param user User address
+     * @return canClaim True if can claim
+     * @return timeRemaining Seconds until next claim (0 if can claim)
      */
     function canClaim(address user) external view returns (bool, uint256) {
         uint256 nextClaimTime = lastClaimTime[user] + CLAIM_COOLDOWN;
@@ -269,28 +298,45 @@ contract IvyCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Get estimated daily reward for a user
+     * @dev Get user's mining stats
+     * @param user User address
      */
-    function getEstimatedDailyReward(address user) external view returns (uint256) {
-        return calculateDailyMint(user);
+    function getUserMiningStats(address user) external view returns (
+        uint256 pendingReward,
+        uint256 totalClaimedAmount,
+        uint256 referralEarnings,
+        uint256 lastClaim,
+        uint256 bondPower,
+        uint256 totalBoost
+    ) {
+        pendingReward = calculateDailyReward(user);
+        totalClaimedAmount = totalClaimed[user];
+        referralEarnings = referralRewardsEarned[user];
+        lastClaim = lastClaimTime[user];
+        
+        if (address(ivyBond) != address(0)) {
+            bondPower = ivyBond.getBondPower(user);
+        }
+        
+        if (address(genesisNode) != address(0)) {
+            totalBoost = genesisNode.getTotalBoost(user);
+        }
     }
 
     /**
-     * @dev Get current protocol stats
+     * @dev Get protocol stats
      */
     function getProtocolStats() external view returns (
         uint256 _totalMinted,
         uint256 _hardCap,
         uint256 _emissionFactor,
-        bool _circuitBreakerActive,
-        CircuitLevel _cbLevel
+        uint256 _nextHalvingAt
     ) {
         return (
             totalMinted,
             HARD_CAP,
-            currentEmissionFactor,
-            cbStatus.isActive,
-            cbStatus.level
+            emissionFactor,
+            lastHalvingMinted + HALVING_THRESHOLD
         );
     }
 }

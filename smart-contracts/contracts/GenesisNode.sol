@@ -6,79 +6,94 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./IGenesisNode.sol";
 
 /**
  * @title GenesisNode
- * @dev ERC721 NFT contract with Pay-to-Mint functionality and 50/40/10 fund distribution.
+ * @dev ERC721 NFT Contract - Identity Layer of Ivy Protocol
  * 
- * Fund Split Logic:
- * - 50% → LiquidityWallet (for DEX liquidity)
- * - 40% → DividendPool (for staking rewards, can be IvyCore)
- * - 10% → DevWallet (for development & operations)
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                    GENESIS NODE SPECS                         ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  Max Supply:     1,386 (Hard Cap)                             ║
+ * ║  Price:          1,000 USDT                                   ║
+ * ║  Fund Flow:      100% → TeamOpsWallet (NO SPLIT)              ║
+ * ║  Self Boost:     10% (1000 basis points)                      ║
+ * ║  Team Aura:      2% (200 basis points)                        ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ * 
+ * This contract handles:
+ * - NFT minting with USDT payment
+ * - Referral relationship binding
+ * - Boost calculations for mining rewards
  */
-contract GenesisNode is ERC721Enumerable, Ownable, ReentrancyGuard, IGenesisNode {
+contract GenesisNode is ERC721Enumerable, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     
-    // ============ Structs ============
-    struct UserInfo {
-        address referrer;
-        uint256 totalRewards;
-        uint256 totalMinted;
-    }
+    // ============ Constants ============
     
+    /// @notice Maximum supply of Genesis Nodes (HARD CAP)
+    uint256 public constant MAX_SUPPLY = 1386;
+    
+    /// @notice Price per Genesis Node in USDT (1000 USDT with 18 decimals)
+    uint256 public constant NODE_PRICE = 1000 * 10**18;
+    
+    /// @notice Self boost for NFT holders (10% = 1000 basis points)
+    uint256 public constant SELF_BOOST = 1000;  // 10%
+    
+    /// @notice Team aura boost for downline (2% = 200 basis points)
+    uint256 public constant TEAM_AURA = 200;    // 2%
+    
+    /// @notice Basis points denominator
+    uint256 public constant BASIS_POINTS = 10000;
+
     // ============ State Variables ============
-    mapping(address => UserInfo) public users;
     
-    // Payment Token (USDT)
+    /// @notice Payment token (USDT)
     IERC20 public paymentToken;
     
-    // Node Price: 100 USDT (with 18 decimals)
-    uint256 public constant NODE_PRICE = 100 * 10**18;
+    /// @notice Team operations wallet - receives 100% of sales
+    address public teamOpsWallet;
     
-    // Fund Distribution Wallets
-    address public liquidityWallet;   // 50%
-    address public dividendPool;      // 40% (IvyCore address)
-    address public devWallet;         // 10%
-    
-    // Distribution Rates (basis points, 10000 = 100%)
-    uint256 public constant LIQUIDITY_RATE = 5000;  // 50%
-    uint256 public constant DIVIDEND_RATE = 4000;   // 40%
-    uint256 public constant DEV_RATE = 1000;        // 10%
-    
-    // Referral Reward Rates (basis points)
-    uint256 public constant L1_RATE = 1000;         // 10%
-    uint256 public constant L2_RATE = 500;          // 5%
-    uint256 public constant INFINITE_RATE = 200;    // 2%
-    uint256 public constant EQUAL_LEVEL_BONUS = 50; // 0.5%
-    uint256 public constant MAX_DEPTH = 20;         // Gas Limit Protection
-
+    /// @notice Token ID counter
     uint256 private _nextTokenId;
+    
+    /// @notice Base URI for token metadata
     string private _baseTokenURI;
     
-    // Total funds collected
-    uint256 public totalFundsCollected;
+    /// @notice Referral relationships: user => referrer (upline)
+    mapping(address => address) public referrers;
+    
+    /// @notice Direct referral count: referrer => count of direct downlines
+    mapping(address => uint256) public directReferralCount;
+    
+    /// @notice Total sales volume
+    uint256 public totalSalesVolume;
 
     // ============ Events ============
-    event NodeMinted(address indexed buyer, uint256 indexed tokenId, address referrer, uint256 price);
-    event FundsDistributed(uint256 toLiquidity, uint256 toDividend, uint256 toDev);
-    event PaymentTokenUpdated(address indexed oldToken, address indexed newToken);
-    event WalletsUpdated(address liquidity, address dividend, address dev);
-    event ReferralRewardPaid(address indexed referrer, address indexed buyer, uint256 amount, uint256 level);
+    
+    event NodeMinted(
+        address indexed buyer, 
+        uint256 indexed tokenId, 
+        address indexed referrer, 
+        uint256 price
+    );
+    event ReferrerBound(address indexed user, address indexed referrer);
+    event PaymentTokenSet(address indexed token);
+    event TeamOpsWalletSet(address indexed wallet);
+    event BaseURISet(string baseURI);
 
     // ============ Constructor ============
-    constructor(
-        address _liquidityWallet,
-        address _dividendPool,
-        address _devWallet
-    ) ERC721("Ivy Genesis Node", "IVY-NODE") Ownable(msg.sender) {
-        require(_liquidityWallet != address(0), "Invalid liquidity wallet");
-        require(_dividendPool != address(0), "Invalid dividend pool");
-        require(_devWallet != address(0), "Invalid dev wallet");
-        
-        liquidityWallet = _liquidityWallet;
-        dividendPool = _dividendPool;
-        devWallet = _devWallet;
+    
+    /**
+     * @dev Initialize the Genesis Node contract
+     * @param _teamOpsWallet Address to receive 100% of sales proceeds
+     */
+    constructor(address _teamOpsWallet) 
+        ERC721("Ivy Genesis Node", "IVY-NODE") 
+        Ownable(msg.sender) 
+    {
+        require(_teamOpsWallet != address(0), "Invalid TeamOps wallet");
+        teamOpsWallet = _teamOpsWallet;
     }
 
     // ============ Admin Functions ============
@@ -89,212 +104,201 @@ contract GenesisNode is ERC721Enumerable, Ownable, ReentrancyGuard, IGenesisNode
      */
     function setPaymentToken(address _paymentToken) external onlyOwner {
         require(_paymentToken != address(0), "Invalid token address");
-        address oldToken = address(paymentToken);
         paymentToken = IERC20(_paymentToken);
-        emit PaymentTokenUpdated(oldToken, _paymentToken);
+        emit PaymentTokenSet(_paymentToken);
     }
 
     /**
-     * @dev Update distribution wallet addresses
+     * @dev Update the TeamOps wallet address
+     * @param _teamOpsWallet New wallet address
      */
-    function setWallets(
-        address _liquidityWallet,
-        address _dividendPool,
-        address _devWallet
-    ) external onlyOwner {
-        require(_liquidityWallet != address(0), "Invalid liquidity wallet");
-        require(_dividendPool != address(0), "Invalid dividend pool");
-        require(_devWallet != address(0), "Invalid dev wallet");
-        
-        liquidityWallet = _liquidityWallet;
-        dividendPool = _dividendPool;
-        devWallet = _devWallet;
-        
-        emit WalletsUpdated(_liquidityWallet, _dividendPool, _devWallet);
+    function setTeamOpsWallet(address _teamOpsWallet) external onlyOwner {
+        require(_teamOpsWallet != address(0), "Invalid wallet address");
+        teamOpsWallet = _teamOpsWallet;
+        emit TeamOpsWalletSet(_teamOpsWallet);
     }
 
+    /**
+     * @dev Set the base URI for token metadata
+     * @param baseURI New base URI
+     */
     function setBaseURI(string calldata baseURI) external onlyOwner {
         _baseTokenURI = baseURI;
+        emit BaseURISet(baseURI);
     }
 
+    /**
+     * @dev Admin function to manually set referrer (for migration/correction)
+     * @param user User address
+     * @param referrer Referrer address
+     */
     function setReferrer(address user, address referrer) external onlyOwner {
-        users[user].referrer = referrer;
+        require(referrers[user] == address(0), "Referrer already set");
+        require(referrer != user, "Cannot self-refer");
+        referrers[user] = referrer;
+        directReferralCount[referrer]++;
+        emit ReferrerBound(user, referrer);
     }
 
     // ============ Core Functions ============
 
+    /**
+     * @dev Internal function to return base URI
+     */
     function _baseURI() internal view virtual override returns (string memory) {
         return _baseTokenURI;
     }
 
     /**
-     * @dev Pay-to-Mint: Users pay USDT to mint a Genesis Node NFT
-     * @param referrer Address of the referrer (optional, can be address(0))
+     * @dev Mint a Genesis Node NFT
      * 
      * Flow:
-     * 1. Check payment token is set
-     * 2. Check user has approved enough USDT
-     * 3. Transfer USDT from user to contract
-     * 4. Execute 50/40/10 fund split
-     * 5. Set referrer relationship (if first time)
-     * 6. Mint NFT to user
+     * 1. Check max supply not exceeded
+     * 2. Check payment token is set
+     * 3. Transfer USDT from buyer to contract
+     * 4. Transfer 100% to TeamOpsWallet (NO SPLIT)
+     * 5. Bind referrer relationship (if first time and valid)
+     * 6. Mint NFT to buyer
+     * 
+     * @param referrer Address of the referrer (can be address(0) for no referrer)
      */
-    function mint(address to, address referrer) external override nonReentrant {
+    function mint(address referrer) external nonReentrant {
+        require(_nextTokenId < MAX_SUPPLY, "Max supply reached");
         require(address(paymentToken) != address(0), "Payment token not set");
-        require(to != address(0), "Invalid recipient");
         
-        // Step 1: Transfer payment from user
-        // User must have called paymentToken.approve(thisContract, NODE_PRICE) beforehand
-        paymentToken.safeTransferFrom(msg.sender, address(this), NODE_PRICE);
+        address buyer = msg.sender;
         
-        // Step 2: Execute the 50/40/10 Fund Split
-        _distributeFunds(NODE_PRICE);
+        // Step 1: Transfer USDT from buyer
+        paymentToken.safeTransferFrom(buyer, address(this), NODE_PRICE);
         
-        // Step 3: Set referrer relationship (only if not already set)
-        if (users[to].referrer == address(0) && referrer != address(0) && referrer != to) {
-            users[to].referrer = referrer;
+        // Step 2: Transfer 100% to TeamOpsWallet (NO SPLIT - per spec)
+        paymentToken.safeTransfer(teamOpsWallet, NODE_PRICE);
+        
+        // Step 3: Bind referrer (only if not already bound and valid)
+        if (referrers[buyer] == address(0) && referrer != address(0) && referrer != buyer) {
+            referrers[buyer] = referrer;
+            directReferralCount[referrer]++;
+            emit ReferrerBound(buyer, referrer);
         }
         
         // Step 4: Mint NFT
         uint256 tokenId = _nextTokenId++;
-        _safeMint(to, tokenId);
+        _safeMint(buyer, tokenId);
         
         // Update stats
-        users[to].totalMinted++;
-        totalFundsCollected += NODE_PRICE;
+        totalSalesVolume += NODE_PRICE;
         
-        emit NodeMinted(to, tokenId, referrer, NODE_PRICE);
+        emit NodeMinted(buyer, tokenId, referrer, NODE_PRICE);
+    }
+
+    // ============ View Functions - Boost Calculations ============
+
+    /**
+     * @dev Get self boost for a user (10% if holds NFT, 0 otherwise)
+     * @param user User address
+     * @return Boost in basis points (1000 = 10%)
+     */
+    function getSelfBoost(address user) external view returns (uint256) {
+        return balanceOf(user) > 0 ? SELF_BOOST : 0;
     }
 
     /**
-     * @dev Internal function to distribute funds according to 50/40/10 split
-     * @param amount Total amount to distribute
-     * 
-     * ┌─────────────────────────────────────────────────────────┐
-     * │                    FUND DISTRIBUTION                    │
-     * ├─────────────────────────────────────────────────────────┤
-     * │  50% → LiquidityWallet  (DEX Liquidity Pool)           │
-     * │  40% → DividendPool     (Staking Rewards / IvyCore)    │
-     * │  10% → DevWallet        (Development & Operations)     │
-     * └─────────────────────────────────────────────────────────┘
+     * @dev Get team aura boost from upline
+     * If user's referrer holds a Genesis Node, user gets +2% boost
+     * @param user User address
+     * @return Boost in basis points (200 = 2%)
      */
-    function _distributeFunds(uint256 amount) internal {
-        // Calculate split amounts
-        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / 10000;  // 50%
-        uint256 toDividend = (amount * DIVIDEND_RATE) / 10000;    // 40%
-        uint256 toDev = (amount * DEV_RATE) / 10000;              // 10%
-        
-        // Transfer to respective wallets
-        paymentToken.safeTransfer(liquidityWallet, toLiquidity);
-        paymentToken.safeTransfer(dividendPool, toDividend);
-        paymentToken.safeTransfer(devWallet, toDev);
-        
-        emit FundsDistributed(toLiquidity, toDividend, toDev);
+    function getTeamAura(address user) external view returns (uint256) {
+        address upline = referrers[user];
+        if (upline == address(0)) return 0;
+        return balanceOf(upline) > 0 ? TEAM_AURA : 0;
     }
 
     /**
-     * @dev Distribute IVY token rewards to referral network
-     * Called by IvyCore when user claims daily rewards
-     * @param minter Address of the user who triggered the reward
-     * @param mintAmount Amount of IVY tokens being distributed
+     * @dev Get total boost for a user (selfBoost + teamAura)
+     * @param user User address
+     * @return Total boost in basis points
      */
-    function distributeRewards(address minter, uint256 mintAmount) external override {
-        address current = users[minter].referrer;
-        if (current == address(0)) return;
-
-        // --- L1 Distribution (10%) ---
-        uint256 l1Reward = (mintAmount * L1_RATE) / 10000;
-        _safeTransferReward(current, l1Reward);
-        emit ReferralRewardPaid(current, minter, l1Reward, 1);
+    function getTotalBoost(address user) external view returns (uint256) {
+        uint256 selfBoost = balanceOf(user) > 0 ? SELF_BOOST : 0;
         
-        address l2 = users[current].referrer;
-        if (l2 == address(0)) return;
-
-        // --- L2 Distribution (5%) ---
-        uint256 l2Reward = (mintAmount * L2_RATE) / 10000;
-        _safeTransferReward(l2, l2Reward);
-        emit ReferralRewardPaid(l2, minter, l2Reward, 2);
-
-        // --- L3~Infinite Distribution (2% Differential) ---
-        address cursor = users[l2].referrer;
-        bool infiniteRewardClaimed = false;
-        uint256 depth = 0;
-
-        while (cursor != address(0) && !infiniteRewardClaimed && depth < MAX_DEPTH) {
-            if (balanceOf(cursor) > 0) {
-                uint256 infiniteReward = (mintAmount * INFINITE_RATE) / 10000;
-                _safeTransferReward(cursor, infiniteReward);
-                emit ReferralRewardPaid(cursor, minter, infiniteReward, 3);
-                infiniteRewardClaimed = true;
-                
-                // Equal level bonus
-                address potentialBlockedUpline = users[cursor].referrer;
-                if (potentialBlockedUpline != address(0) && balanceOf(potentialBlockedUpline) > 0) {
-                    uint256 equalBonus = (mintAmount * EQUAL_LEVEL_BONUS) / 10000;
-                    _safeTransferReward(potentialBlockedUpline, equalBonus);
-                    emit ReferralRewardPaid(potentialBlockedUpline, minter, equalBonus, 4);
-                }
-            }
-            cursor = users[cursor].referrer;
-            depth++;
+        address upline = referrers[user];
+        uint256 teamAura = 0;
+        if (upline != address(0) && balanceOf(upline) > 0) {
+            teamAura = TEAM_AURA;
         }
-
-        // If no one claimed the infinite reward, it goes to dividend pool
-        if (!infiniteRewardClaimed) {
-            uint256 unclaimedReward = (mintAmount * INFINITE_RATE) / 10000;
-            _safeTransferReward(dividendPool, unclaimedReward);
-        }
+        
+        return selfBoost + teamAura;
     }
 
     /**
-     * @dev Get self boost multiplier for a user
-     * Users holding at least 1 NFT get +10% boost
+     * @dev Get referrer (upline) of a user
+     * @param user User address
+     * @return Referrer address
      */
-    function getSelfBoost(address user) external view override returns (uint256) {
-        return balanceOf(user) > 0 ? 1e17 : 0; // +10% if holds NFT
+    function getReferrer(address user) external view returns (address) {
+        return referrers[user];
     }
 
     /**
-     * @dev Internal function to record reward distribution
-     * In production, this would mint IVY tokens or transfer from a pool
+     * @dev Check if user has a referrer bound
+     * @param user User address
+     * @return True if referrer is bound
      */
-    function _safeTransferReward(address to, uint256 amount) internal {
-        users[to].totalRewards += amount;
+    function hasReferrer(address user) external view returns (bool) {
+        return referrers[user] != address(0);
     }
 
-    // ============ View Functions ============
-
     /**
-     * @dev Get user info including referrer and total rewards
+     * @dev Get user info for frontend display
+     * @param user User address
+     * @return nftBalance Number of NFTs held
+     * @return referrer Referrer address
+     * @return directDownlines Number of direct referrals
+     * @return selfBoost Self boost in basis points
+     * @return teamAura Team aura boost in basis points
+     * @return totalBoost Total boost in basis points
      */
     function getUserInfo(address user) external view returns (
+        uint256 nftBalance,
         address referrer,
-        uint256 totalRewards,
-        uint256 totalMinted,
-        uint256 nftBalance
+        uint256 directDownlines,
+        uint256 selfBoost,
+        uint256 teamAura,
+        uint256 totalBoost
     ) {
-        UserInfo memory info = users[user];
-        return (
-            info.referrer,
-            info.totalRewards,
-            info.totalMinted,
-            balanceOf(user)
-        );
+        nftBalance = balanceOf(user);
+        referrer = referrers[user];
+        directDownlines = directReferralCount[user];
+        selfBoost = nftBalance > 0 ? SELF_BOOST : 0;
+        
+        if (referrer != address(0) && balanceOf(referrer) > 0) {
+            teamAura = TEAM_AURA;
+        }
+        
+        totalBoost = selfBoost + teamAura;
     }
 
     /**
-     * @dev Get current distribution wallet addresses
+     * @dev Get contract stats
+     * @return currentSupply Current number of minted NFTs
+     * @return maxSupply Maximum supply (1386)
+     * @return price Price per NFT in USDT
+     * @return totalVolume Total sales volume
      */
-    function getDistributionWallets() external view returns (
-        address _liquidityWallet,
-        address _dividendPool,
-        address _devWallet
+    function getContractStats() external view returns (
+        uint256 currentSupply,
+        uint256 maxSupply,
+        uint256 price,
+        uint256 totalVolume
     ) {
-        return (liquidityWallet, dividendPool, devWallet);
+        return (_nextTokenId, MAX_SUPPLY, NODE_PRICE, totalSalesVolume);
     }
 
     /**
      * @dev Check if user has approved enough tokens for minting
+     * @param user User address
+     * @return True if approved amount >= NODE_PRICE
      */
     function hasApprovedMint(address user) external view returns (bool) {
         if (address(paymentToken) == address(0)) return false;
