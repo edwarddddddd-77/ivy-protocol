@@ -9,11 +9,15 @@ import GenesisNodeABI from '@/contracts/abis.json';
 const NFT_API_BASE = '/api/nft';
 
 // Default stable image - placehold.co is bulletproof
-const DEFAULT_IMAGE = 'https://placehold.co/600x600/2a0a3b/00ff9d/png?text=IVY+GENESIS%0A[+ACTIVE+]&font=montserrat';
+const DEFAULT_IMAGE = 'https://i.imgur.com/8b8578q.jpeg';
+
+// Fallback image when primary fails - elegant "Generating..." placeholder
+const FALLBACK_IMAGE = 'https://placehold.co/600x600/2a0a3b/00ff9d/png?text=Generating...&font=montserrat';
 
 export function MyNodes() {
   const { address, isConnected } = useAccount();
   const [nftImages, setNftImages] = useState<Record<number, string>>({});
+  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
   // Data reading logic - KEEP THIS FIXED VERSION
   const { data: balance, isLoading, refetch } = useReadContract({
@@ -55,6 +59,11 @@ export function MyNodes() {
       });
     }
   }, [balance]);
+
+  // Elegant fallback handler - switch to "Generating..." placeholder on error
+  const handleImageError = (tokenId: number) => {
+    setImageErrors(prev => ({ ...prev, [tokenId]: true }));
+  };
 
   const count = balance ? Number(balance) : 0;
   const tokenIds = Array.from({ length: count }, (_, i) => i);
@@ -113,18 +122,21 @@ export function MyNodes() {
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {tokenIds.map((id) => {
-          // Use API image if available, fallback to default stable image
-          const imageUrl = nftImages[id] || DEFAULT_IMAGE;
+          // Use API image if available, fallback to default
+          const primaryImage = nftImages[id] || DEFAULT_IMAGE;
+          // If error occurred, show elegant "Generating..." fallback
+          const displayImage = imageErrors[id] ? FALLBACK_IMAGE : primaryImage;
           
           return (
             <GlassCard key={id} className="group hover:border-primary/50 transition-colors overflow-hidden">
               <div className="aspect-square bg-black/50 relative overflow-hidden">
-                {/* Native img tag - no onError handler, let browser show broken icon if needed */}
+                {/* Native img tag with elegant fallback on error */}
                 <img 
-                  src={imageUrl}
+                  src={displayImage}
                   alt={`Genesis Node #${id}`}
                   width={400}
                   height={400}
+                  onError={() => handleImageError(id)}
                   className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                   style={{ display: 'block' }}
                 />
