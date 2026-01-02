@@ -5,15 +5,17 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { Web3Provider } from "./contexts/Web3Context";
+import { LanguageProvider } from "./contexts/LanguageContext";
 import Home from "./pages/Home";
-import Dashboard from "./pages/Dashboard";
-
+import Nodes from "./pages/Nodes";
+import Yield from "./pages/Yield";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
-      <Route path={"/dashboard"} component={Dashboard} />
+      <Route path={"/nodes"} component={Nodes} />
+      <Route path={"/yield"} component={Yield} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
@@ -30,15 +32,17 @@ function App() {
   return (
     <ErrorBoundary>
       <Web3Provider>
-        <ThemeProvider
-          defaultTheme="light"
-          // switchable
-        >
-          <TooltipProvider>
-            <Toaster />
-            <Router />
-          </TooltipProvider>
-        </ThemeProvider>
+        <LanguageProvider>
+          <ThemeProvider
+            defaultTheme="light"
+            // switchable
+          >
+            <TooltipProvider>
+              <Toaster />
+              <Router />
+            </TooltipProvider>
+          </ThemeProvider>
+        </LanguageProvider>
       </Web3Provider>
     </ErrorBoundary>
   );
