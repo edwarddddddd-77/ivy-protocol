@@ -613,8 +613,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyCore.sol": {
-      "lastModificationDate": 1767464715130,
-      "contentHash": "f6b24488d31b79eff9cd0f1b7f18ba73",
+      "lastModificationDate": 1767467592126,
+      "contentHash": "8b95d31a094a09700bc91c1ed02f3a01",
       "sourceName": "contracts/IvyCore.sol",
       "solcConfig": {
         "version": "0.8.20",

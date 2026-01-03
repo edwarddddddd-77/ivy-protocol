@@ -43,6 +43,44 @@
       "inputs": [
         {
           "indexed": false,
+          "internalType": "enum IvyCore.BreakerLevel",
+          "name": "previousLevel",
+          "type": "uint8"
+        }
+      ],
+      "name": "CircuitBreakerReset",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "enum IvyCore.BreakerLevel",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "activationTime",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "activationPrice",
+          "type": "uint256"
+        }
+      ],
+      "name": "CircuitBreakerTriggered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
           "internalType": "uint256",
           "name": "newEmissionFactor",
           "type": "uint256"
@@ -107,19 +145,6 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "newMultiplier",
-          "type": "uint256"
-        }
-      ],
-      "name": "PidMultiplierUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint256",
           "name": "accIvyPerShare",
           "type": "uint256"
         },
@@ -137,6 +162,31 @@
         }
       ],
       "name": "PoolUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "currentPrice",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "ma30Price",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "price1hAgo",
+          "type": "uint256"
+        }
+      ],
+      "name": "PriceUpdated",
       "type": "event"
     },
     {
@@ -273,6 +323,45 @@
     },
     {
       "inputs": [],
+      "name": "ALPHA_L1",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ALPHA_L2",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ALPHA_L3",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "BASE_DAILY_EMISSION",
       "outputs": [
         {
@@ -292,6 +381,84 @@
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "COOLDOWN_L1",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "COOLDOWN_L2",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "COOLDOWN_L3",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DROP_L1",
+      "outputs": [
+        {
+          "internalType": "int256",
+          "name": "",
+          "type": "int256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DROP_L2",
+      "outputs": [
+        {
+          "internalType": "int256",
+          "name": "",
+          "type": "int256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DROP_L3",
+      "outputs": [
+        {
+          "internalType": "int256",
+          "name": "",
+          "type": "int256"
         }
       ],
       "stateMutability": "view",
@@ -416,6 +583,45 @@
     },
     {
       "inputs": [],
+      "name": "PID_CAP",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "PID_FLOOR",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "PID_K",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "VESTING_PERIOD",
       "outputs": [
         {
@@ -442,6 +648,36 @@
     },
     {
       "inputs": [],
+      "name": "breakerState",
+      "outputs": [
+        {
+          "internalType": "enum IvyCore.BreakerLevel",
+          "name": "currentLevel",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "activationTime",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "activationPrice",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "checkCircuitBreaker",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "claimVested",
       "outputs": [],
       "stateMutability": "nonpayable",
@@ -450,6 +686,19 @@
     {
       "inputs": [],
       "name": "currentDailyEmission",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "currentPrice",
       "outputs": [
         {
           "internalType": "uint256",
@@ -488,6 +737,65 @@
     },
     {
       "inputs": [],
+      "name": "getBreakerStatus",
+      "outputs": [
+        {
+          "internalType": "enum IvyCore.BreakerLevel",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "activationTime",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "activationPrice",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "timeRemaining",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "forcedAlpha",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getFinalMultiplier",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getPIDAlpha",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "getProtocolStats",
       "outputs": [
         {
@@ -507,7 +815,7 @@
         },
         {
           "internalType": "uint256",
-          "name": "_pidMultiplier",
+          "name": "_finalMultiplier",
           "type": "uint256"
         },
         {
@@ -518,6 +826,11 @@
         {
           "internalType": "uint256",
           "name": "_emissionPerSecond",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_currentDailyEmission",
           "type": "uint256"
         }
       ],
@@ -536,32 +849,27 @@
       "outputs": [
         {
           "internalType": "uint256",
-          "name": "_pendingReward",
+          "name": "bondPower",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_totalClaimed",
+          "name": "pendingRewards",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_referralEarnings",
+          "name": "totalVested",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_vestedAmount",
+          "name": "totalClaimed",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "_claimableVested",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_bondPower",
+          "name": "claimableNow",
           "type": "uint256"
         }
       ],
@@ -590,22 +898,22 @@
         },
         {
           "internalType": "uint256",
-          "name": "claimable",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
           "name": "vestingStartTime",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "vestingEndTime",
+          "name": "claimableNow",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "percentVested",
+          "name": "remainingLocked",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "vestingProgress",
           "type": "uint256"
         }
       ],
@@ -680,6 +988,19 @@
     },
     {
       "inputs": [],
+      "name": "ma30Price",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "owner",
       "outputs": [
         {
@@ -712,7 +1033,7 @@
     },
     {
       "inputs": [],
-      "name": "pidMultiplier",
+      "name": "price1hAgo",
       "outputs": [
         {
           "internalType": "uint256",
@@ -750,6 +1071,13 @@
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "resetCircuitBreaker",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -771,19 +1099,6 @@
         }
       ],
       "name": "setIvyBond",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_multiplier",
-          "type": "uint256"
-        }
-      ],
-      "name": "setPidMultiplier",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -843,6 +1158,29 @@
     {
       "inputs": [],
       "name": "updatePool",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_currentPrice",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_ma30Price",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_price1hAgo",
+          "type": "uint256"
+        }
+      ],
+      "name": "updatePrices",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

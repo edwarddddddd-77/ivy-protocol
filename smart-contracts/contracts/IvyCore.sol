@@ -12,6 +12,17 @@ import "./IIvyBond.sol";
  * @dev Core Mining & Reward Distribution Contract for Ivy Protocol
  * 
  * ╔═══════════════════════════════════════════════════════════════╗
+ * ║              PID + CIRCUIT BREAKER DUAL CONTROL               ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  Final Multiplier = Breaker Active ? BreakerAlpha : PIDAlpha  ║
+ * ║                                                               ║
+ * ║  PID Formula: alpha = (P/MA30)^k, capped [0.1, 1.5]          ║
+ * ║  Breaker L1: -10% drop → 0.5x for 4h                         ║
+ * ║  Breaker L2: -15% drop → 0.2x for 12h                        ║
+ * ║  Breaker L3: -25% drop → 0.05x for 24h                       ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ * 
+ * ╔═══════════════════════════════════════════════════════════════╗
  * ║              REWARD PER SECOND (RPS) ALGORITHM                ║
  * ╠═══════════════════════════════════════════════════════════════╣
  * ║  - NO daily snapshots (prevents front-running)                ║
@@ -26,14 +37,6 @@ import "./IIvyBond.sol";
  * ║  Option A: Standard Unlock - 30 day linear release            ║
  * ║  Option B: Instant Cash - Immediate, but 50% burned           ║
  * ╚═══════════════════════════════════════════════════════════════╝
- * 
- * ╔═══════════════════════════════════════════════════════════════╗
- * ║                 REFERRAL REWARD STRUCTURE                     ║
- * ╠═══════════════════════════════════════════════════════════════╣
- * ║  L1 (Direct):     10% of mining output                        ║
- * ║  L2 (Indirect):   5% of mining output                         ║
- * ║  L3+ (Infinite):  2% differential (first qualified upline)    ║
- * ╚═══════════════════════════════════════════════════════════════╝
  */
 contract IvyCore is Ownable, ReentrancyGuard {
     
@@ -43,7 +46,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
     IIvyBond public ivyBond;
     IvyToken public ivyToken;
     
-    // ============ Constants ============
+    // ============ Basic Constants ============
     
     /// @notice Referral reward rates in basis points
     uint256 public constant L1_RATE = 1000;          // 10%
@@ -76,6 +79,46 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Precision for accIvyPerShare calculation
     uint256 public constant ACC_IVY_PRECISION = 1e12;
 
+    // ============ PID Constants (Whitepaper V2.5) ============
+    
+    /// @notice PID coefficient k = 2.0 (for alpha = (P/MA30)^k)
+    uint256 public constant PID_K = 2 * 10**18;
+    
+    /// @notice PID maximum multiplier: 1.5x
+    uint256 public constant PID_CAP = 15 * 10**17;
+    
+    /// @notice PID minimum multiplier: 0.1x
+    uint256 public constant PID_FLOOR = 1 * 10**17;
+
+    // ============ Circuit Breaker Constants (Whitepaper V2.5) ============
+    
+    /// @notice Drop thresholds (1-hour price drop percentage, stored as positive integers)
+    int256 public constant DROP_L1 = -10;  // -10%
+    int256 public constant DROP_L2 = -15;  // -15%
+    int256 public constant DROP_L3 = -25;  // -25%
+    
+    /// @notice Forced alpha values when breaker is active
+    uint256 public constant ALPHA_L1 = 5 * 10**17;   // 0.5x (halved)
+    uint256 public constant ALPHA_L2 = 2 * 10**17;   // 0.2x (20% remaining)
+    uint256 public constant ALPHA_L3 = 5 * 10**16;   // 0.05x (emergency stop)
+    
+    /// @notice Cooldown periods for each breaker level
+    uint256 public constant COOLDOWN_L1 = 4 hours;
+    uint256 public constant COOLDOWN_L2 = 12 hours;
+    uint256 public constant COOLDOWN_L3 = 24 hours;
+
+    // ============ Circuit Breaker State ============
+    
+    enum BreakerLevel { NONE, LEVEL1, LEVEL2, LEVEL3 }
+    
+    struct BreakerState {
+        BreakerLevel currentLevel;
+        uint256 activationTime;
+        uint256 activationPrice;
+    }
+    
+    BreakerState public breakerState;
+
     // ============ Pool State (Reward Per Second) ============
     
     /// @notice Accumulated IVY per share (scaled by ACC_IVY_PRECISION)
@@ -96,8 +139,14 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Last halving checkpoint
     uint256 public lastHalvingMinted;
     
-    /// @notice PID multiplier for dynamic emission control
-    uint256 public pidMultiplier = 10**18;  // 1.0x default
+    /// @notice Current IVY price (set by oracle/keeper)
+    uint256 public currentPrice = 10**18;  // Default $1.00
+    
+    /// @notice 30-day moving average price
+    uint256 public ma30Price = 10**18;  // Default $1.00
+    
+    /// @notice Price 1 hour ago (for breaker calculation)
+    uint256 public price1hAgo = 10**18;
 
     // ============ User State ============
     
@@ -125,7 +174,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
     event InstantCashOut(address indexed user, uint256 received, uint256 burned);
     event ReferralRewardPaid(address indexed referrer, address indexed from, uint256 amount, uint256 level);
     event HalvingOccurred(uint256 newEmissionFactor, uint256 totalMinted);
-    event PidMultiplierUpdated(uint256 newMultiplier);
+    event CircuitBreakerTriggered(BreakerLevel level, uint256 activationTime, uint256 activationPrice);
+    event CircuitBreakerReset(BreakerLevel previousLevel);
+    event PriceUpdated(uint256 currentPrice, uint256 ma30Price, uint256 price1hAgo);
 
     // ============ Constructor ============
     
@@ -146,27 +197,180 @@ contract IvyCore is Ownable, ReentrancyGuard {
         ivyBond = IIvyBond(_ivyBond);
     }
     
-    function setPidMultiplier(uint256 _multiplier) external onlyOwner {
-        require(_multiplier >= 5 * 10**17 && _multiplier <= 2 * 10**18, "Invalid multiplier");
-        pidMultiplier = _multiplier;
-        emit PidMultiplierUpdated(_multiplier);
+    /**
+     * @dev Update price data (called by oracle/keeper)
+     */
+    function updatePrices(uint256 _currentPrice, uint256 _ma30Price, uint256 _price1hAgo) external onlyOwner {
+        require(_currentPrice > 0 && _ma30Price > 0 && _price1hAgo > 0, "Invalid prices");
+        currentPrice = _currentPrice;
+        ma30Price = _ma30Price;
+        price1hAgo = _price1hAgo;
+        emit PriceUpdated(_currentPrice, _ma30Price, _price1hAgo);
+    }
+
+    // ============ PID + Circuit Breaker Functions ============
+
+    /**
+     * @dev Get the final emission multiplier (PID + Circuit Breaker)
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              THE MASTER FUNCTION                              ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Priority 1: Circuit Breaker (if active and not cooled)       ║
+     * ║  Priority 2: PID calculation (normal operation)               ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function getFinalMultiplier() public view returns (uint256) {
+        // --- Priority 1: Check Circuit Breaker ---
+        if (breakerState.currentLevel != BreakerLevel.NONE) {
+            uint256 timePassed = block.timestamp - breakerState.activationTime;
+            
+            // Check Level 3 (RED - Emergency Stop) - 24h hard lock
+            if (breakerState.currentLevel == BreakerLevel.LEVEL3) {
+                if (timePassed < COOLDOWN_L3) return ALPHA_L3;
+            }
+            // Check Level 2 (ORANGE - Severe)
+            else if (breakerState.currentLevel == BreakerLevel.LEVEL2) {
+                if (timePassed < COOLDOWN_L2) return ALPHA_L2;
+            }
+            // Check Level 1 (YELLOW - Warning)
+            else if (breakerState.currentLevel == BreakerLevel.LEVEL1) {
+                if (timePassed < COOLDOWN_L1) return ALPHA_L1;
+            }
+            
+            // If cooldown has passed but state not reset, still use breaker value
+            // Keeper should call resetCircuitBreaker() to clear
+        }
+        
+        // --- Priority 2: PID Calculation ---
+        return _calculatePIDAlpha(currentPrice, ma30Price);
+    }
+    
+    /**
+     * @dev Calculate PID alpha based on price ratio
+     * Formula: alpha = (P / MA30)^k, capped between [PID_FLOOR, PID_CAP]
+     */
+    function _calculatePIDAlpha(uint256 _currentPrice, uint256 _ma30Price) internal pure returns (uint256) {
+        // Prevent division by zero
+        if (_ma30Price == 0) return 10**18;  // Return 1.0x
+        
+        // Calculate ratio = currentPrice / ma30Price (in 18 decimals)
+        uint256 ratio = (_currentPrice * 10**18) / _ma30Price;
+        
+        // Calculate alpha = ratio^2 (k=2.0)
+        // ratio^2 = ratio * ratio / 10^18
+        uint256 alpha = (ratio * ratio) / 10**18;
+        
+        // Apply cap and floor
+        if (alpha > PID_CAP) alpha = PID_CAP;     // Max 1.5x
+        if (alpha < PID_FLOOR) alpha = PID_FLOOR; // Min 0.1x
+        
+        return alpha;
+    }
+    
+    /**
+     * @dev Check and trigger circuit breaker based on 1-hour price drop
+     * Called by external keeper when price data is updated
+     */
+    function checkCircuitBreaker() external {
+        // Calculate 1-hour price change percentage
+        // dropPercent = ((currentPrice - price1hAgo) / price1hAgo) * 100
+        // Stored as integer, negative means drop
+        
+        if (price1hAgo == 0) return;
+        
+        int256 priceChange = int256(currentPrice) - int256(price1hAgo);
+        int256 dropPercent = (priceChange * 100) / int256(price1hAgo);
+        
+        BreakerLevel newLevel = BreakerLevel.NONE;
+        
+        // Check thresholds (most severe first)
+        if (dropPercent <= DROP_L3) {
+            newLevel = BreakerLevel.LEVEL3;
+        } else if (dropPercent <= DROP_L2) {
+            newLevel = BreakerLevel.LEVEL2;
+        } else if (dropPercent <= DROP_L1) {
+            newLevel = BreakerLevel.LEVEL1;
+        }
+        
+        // Only upgrade breaker level, never downgrade automatically
+        if (newLevel > breakerState.currentLevel) {
+            breakerState.currentLevel = newLevel;
+            breakerState.activationTime = block.timestamp;
+            breakerState.activationPrice = currentPrice;
+            
+            emit CircuitBreakerTriggered(newLevel, block.timestamp, currentPrice);
+        }
+    }
+    
+    /**
+     * @dev Reset circuit breaker (called by keeper after cooldown + recovery)
+     */
+    function resetCircuitBreaker() external onlyOwner {
+        require(breakerState.currentLevel != BreakerLevel.NONE, "Breaker not active");
+        
+        uint256 timePassed = block.timestamp - breakerState.activationTime;
+        uint256 requiredCooldown;
+        
+        if (breakerState.currentLevel == BreakerLevel.LEVEL3) {
+            requiredCooldown = COOLDOWN_L3;
+        } else if (breakerState.currentLevel == BreakerLevel.LEVEL2) {
+            requiredCooldown = COOLDOWN_L2;
+        } else {
+            requiredCooldown = COOLDOWN_L1;
+        }
+        
+        require(timePassed >= requiredCooldown, "Cooldown not complete");
+        
+        BreakerLevel previousLevel = breakerState.currentLevel;
+        breakerState.currentLevel = BreakerLevel.NONE;
+        breakerState.activationTime = 0;
+        breakerState.activationPrice = 0;
+        
+        emit CircuitBreakerReset(previousLevel);
+    }
+    
+    /**
+     * @dev Get current breaker status for UI
+     */
+    function getBreakerStatus() external view returns (
+        BreakerLevel level,
+        uint256 activationTime,
+        uint256 activationPrice,
+        uint256 timeRemaining,
+        uint256 forcedAlpha
+    ) {
+        level = breakerState.currentLevel;
+        activationTime = breakerState.activationTime;
+        activationPrice = breakerState.activationPrice;
+        
+        if (level == BreakerLevel.NONE) {
+            return (level, 0, 0, 0, getFinalMultiplier());
+        }
+        
+        uint256 timePassed = block.timestamp - breakerState.activationTime;
+        uint256 cooldown;
+        uint256 alpha;
+        
+        if (level == BreakerLevel.LEVEL3) {
+            cooldown = COOLDOWN_L3;
+            alpha = ALPHA_L3;
+        } else if (level == BreakerLevel.LEVEL2) {
+            cooldown = COOLDOWN_L2;
+            alpha = ALPHA_L2;
+        } else {
+            cooldown = COOLDOWN_L1;
+            alpha = ALPHA_L1;
+        }
+        
+        timeRemaining = timePassed >= cooldown ? 0 : cooldown - timePassed;
+        forcedAlpha = alpha;
     }
 
     // ============ Core Mining Functions (Reward Per Second) ============
 
     /**
-     * @dev Update pool's accumulated rewards
-     * 
-     * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              UPDATE POOL - REWARD PER SECOND                  ║
-     * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  Called on every: deposit, withdraw, claim, sync              ║
-     * ║                                                               ║
-     * ║  Formula:                                                     ║
-     * ║  timeElapsed = block.timestamp - lastRewardTime               ║
-     * ║  ivyReward = timeElapsed * EMISSION_PER_SECOND * factors      ║
-     * ║  accIvyPerShare += ivyReward * ACC_IVY_PRECISION / totalPower ║
-     * ╚═══════════════════════════════════════════════════════════════╝
+     * @dev Update pool's accumulated rewards using getFinalMultiplier()
      */
     function updatePool() public {
         if (block.timestamp <= lastRewardTime) {
@@ -180,9 +384,12 @@ contract IvyCore is Ownable, ReentrancyGuard {
         
         uint256 timeElapsed = block.timestamp - lastRewardTime;
         
+        // Get final multiplier (PID or Breaker)
+        uint256 finalMultiplier = getFinalMultiplier();
+        
         // Calculate IVY reward for this period
-        // ivyReward = timeElapsed * EMISSION_PER_SECOND * emissionFactor * pidMultiplier
-        uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * pidMultiplier) / (10**18 * 10**18);
+        // ivyReward = timeElapsed * EMISSION_PER_SECOND * emissionFactor * finalMultiplier
+        uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * finalMultiplier) / (10**18 * 10**18);
         
         // Check hard cap
         if (totalMinted + ivyReward > HARD_CAP) {
@@ -201,7 +408,6 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
     /**
      * @dev Sync user's bond power and calculate pending rewards
-     * Must be called when user's bond power changes (deposit/withdraw)
      */
     function syncUser(address user) external {
         _syncUser(user);
@@ -247,13 +453,6 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
     /**
      * @dev Calculate pending IVY rewards for a user (view function)
-     * 
-     * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              PENDING IVY CALCULATION                          ║
-     * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  pending = (userBondPower * accIvyPerShare) - rewardDebt      ║
-     * ║          + pendingVested (from previous syncs)                ║
-     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function pendingIvy(address user) public view returns (uint256) {
         UserInfo storage info = userInfo[user];
@@ -262,22 +461,21 @@ contract IvyCore is Ownable, ReentrancyGuard {
         
         if (block.timestamp > lastRewardTime && totalPoolBondPower > 0) {
             uint256 timeElapsed = block.timestamp - lastRewardTime;
-            uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * pidMultiplier) / (10**18 * 10**18);
-            
-            if (totalMinted + ivyReward > HARD_CAP) {
-                ivyReward = HARD_CAP - totalMinted;
-            }
-            
+            uint256 finalMultiplier = getFinalMultiplier();
+            uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * finalMultiplier) / (10**18 * 10**18);
             _accIvyPerShare += (ivyReward * ACC_IVY_PRECISION) / totalPoolBondPower;
         }
         
-        uint256 pending = (info.bondPower * _accIvyPerShare / ACC_IVY_PRECISION) - info.rewardDebt;
+        uint256 pending = 0;
+        if (info.bondPower > 0) {
+            pending = (info.bondPower * _accIvyPerShare / ACC_IVY_PRECISION) - info.rewardDebt;
+        }
+        
         return pending + info.pendingVested;
     }
 
     /**
      * @dev Harvest pending rewards into vesting
-     * Rewards go into 30-day linear vesting, NOT directly to wallet
      */
     function harvest() external nonReentrant {
         address user = msg.sender;
@@ -286,61 +484,54 @@ contract IvyCore is Ownable, ReentrancyGuard {
         UserInfo storage info = userInfo[user];
         uint256 pending = info.pendingVested;
         
-        require(pending > 0, "No rewards to harvest");
-        require(totalMinted + pending <= HARD_CAP, "Hard cap reached");
+        require(pending > 0, "Nothing to harvest");
         
-        // Start vesting
-        info.totalVested += pending;
-        info.vestingStartTime = block.timestamp;
+        // Move to vesting
         info.pendingVested = 0;
+        info.totalVested += pending;
         
-        // Mint to this contract (held for vesting)
-        ivyToken.mint(address(this), pending);
+        if (info.vestingStartTime == 0) {
+            info.vestingStartTime = block.timestamp;
+        }
+        
+        // Mint IVY to this contract for vesting
         totalMinted += pending;
+        ivyToken.mint(address(this), pending);
         
-        emit VestingStarted(user, pending, block.timestamp);
-        emit RewardsHarvested(user, pending);
+        // Check for halving
+        _checkHalving();
         
         // Distribute referral rewards
         _distributeReferralRewards(user, pending);
         
-        // Check halving
-        _checkHalving();
+        emit RewardsHarvested(user, pending);
+        emit VestingStarted(user, pending, block.timestamp);
     }
 
     /**
      * @dev Claim vested IVY (30-day linear release)
-     * 
-     * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              30-DAY LINEAR VESTING                            ║
-     * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  claimable = totalVested * min(timeElapsed, 30 days) / 30days ║
-     * ║            - alreadyClaimed                                   ║
-     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function claimVested() external nonReentrant {
         address user = msg.sender;
         UserInfo storage info = userInfo[user];
         
-        require(info.totalVested > 0, "No vested rewards");
+        require(info.totalVested > 0, "Nothing vested");
+        require(info.vestingStartTime > 0, "Vesting not started");
         
         uint256 timeElapsed = block.timestamp - info.vestingStartTime;
         uint256 vestedAmount;
         
         if (timeElapsed >= VESTING_PERIOD) {
-            // Fully vested
             vestedAmount = info.totalVested;
         } else {
-            // Linearly vested
             vestedAmount = (info.totalVested * timeElapsed) / VESTING_PERIOD;
         }
         
         uint256 claimable = vestedAmount - info.totalClaimed;
-        require(claimable > 0, "No claimable rewards");
+        require(claimable > 0, "Nothing to claim");
         
         info.totalClaimed += claimable;
         
-        // Transfer from contract to user
         ivyToken.transfer(user, claimable);
         
         emit VestingClaimed(user, claimable);
@@ -348,25 +539,20 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
     /**
      * @dev Instant cash out - get IVY immediately but 50% is burned
-     * 
-     * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              INSTANT CASH (50% BURN)                          ║
-     * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  User receives: 50% of remaining vested amount               ║
-     * ║  Burned: 50% of remaining vested amount                       ║
-     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function instantCashOut() external nonReentrant {
         address user = msg.sender;
         UserInfo storage info = userInfo[user];
         
-        uint256 remaining = info.totalVested - info.totalClaimed;
-        require(remaining > 0, "No vested rewards to cash out");
+        require(info.totalVested > info.totalClaimed, "Nothing to cash out");
         
+        uint256 remaining = info.totalVested - info.totalClaimed;
+        
+        // Calculate penalty and received amount
         uint256 penalty = (remaining * INSTANT_CASH_PENALTY) / BASIS_POINTS;
         uint256 received = remaining - penalty;
         
-        // Clear vesting
+        // Mark as fully claimed
         info.totalClaimed = info.totalVested;
         
         // Transfer to user
@@ -376,56 +562,6 @@ contract IvyCore is Ownable, ReentrancyGuard {
         ivyToken.transfer(address(0xdead), penalty);
         
         emit InstantCashOut(user, received, penalty);
-    }
-
-    /**
-     * @dev Distribute referral rewards based on mining output
-     */
-    function _distributeReferralRewards(address user, uint256 miningOutput) internal {
-        if (address(genesisNode) == address(0)) return;
-        
-        address l1 = genesisNode.getReferrer(user);
-        if (l1 == address(0)) return;
-        
-        // L1 Reward (10%)
-        uint256 l1Reward = (miningOutput * L1_RATE) / BASIS_POINTS;
-        if (l1Reward > 0 && totalMinted + l1Reward <= HARD_CAP) {
-            ivyToken.mint(l1, l1Reward);
-            totalMinted += l1Reward;
-            referralRewardsEarned[l1] += l1Reward;
-            emit ReferralRewardPaid(l1, user, l1Reward, 1);
-        }
-        
-        // L2 Reward (5%)
-        address l2 = genesisNode.getReferrer(l1);
-        if (l2 == address(0)) return;
-        
-        uint256 l2Reward = (miningOutput * L2_RATE) / BASIS_POINTS;
-        if (l2Reward > 0 && totalMinted + l2Reward <= HARD_CAP) {
-            ivyToken.mint(l2, l2Reward);
-            totalMinted += l2Reward;
-            referralRewardsEarned[l2] += l2Reward;
-            emit ReferralRewardPaid(l2, user, l2Reward, 2);
-        }
-        
-        // L3+ Infinite Differential (2%)
-        address cursor = genesisNode.getReferrer(l2);
-        uint256 depth = 0;
-        
-        while (cursor != address(0) && depth < MAX_REFERRAL_DEPTH) {
-            if (genesisNode.balanceOf(cursor) > 0) {
-                uint256 infiniteReward = (miningOutput * INFINITE_RATE) / BASIS_POINTS;
-                if (infiniteReward > 0 && totalMinted + infiniteReward <= HARD_CAP) {
-                    ivyToken.mint(cursor, infiniteReward);
-                    totalMinted += infiniteReward;
-                    referralRewardsEarned[cursor] += infiniteReward;
-                    emit ReferralRewardPaid(cursor, user, infiniteReward, 3);
-                }
-                break;
-            }
-            cursor = genesisNode.getReferrer(cursor);
-            depth++;
-        }
     }
 
     /**
@@ -439,67 +575,74 @@ contract IvyCore is Ownable, ReentrancyGuard {
         }
     }
 
+    /**
+     * @dev Distribute referral rewards
+     */
+    function _distributeReferralRewards(address user, uint256 amount) internal {
+        if (address(genesisNode) == address(0)) return;
+        
+        address currentReferrer = genesisNode.getReferrer(user);
+        uint256 depth = 0;
+        
+        while (currentReferrer != address(0) && depth < MAX_REFERRAL_DEPTH) {
+            uint256 rewardRate;
+            
+            if (depth == 0) {
+                rewardRate = L1_RATE;  // 10%
+            } else if (depth == 1) {
+                rewardRate = L2_RATE;  // 5%
+            } else {
+                // L3+ only for qualified (node holders)
+                if (genesisNode.balanceOf(currentReferrer) > 0) {
+                    rewardRate = INFINITE_RATE;  // 2%
+                } else {
+                    currentReferrer = genesisNode.getReferrer(currentReferrer);
+                    depth++;
+                    continue;
+                }
+            }
+            
+            uint256 reward = (amount * rewardRate) / BASIS_POINTS;
+            if (reward > 0) {
+                totalMinted += reward;
+                ivyToken.mint(currentReferrer, reward);
+                referralRewardsEarned[currentReferrer] += reward;
+                emit ReferralRewardPaid(currentReferrer, user, reward, depth + 1);
+            }
+            
+            currentReferrer = genesisNode.getReferrer(currentReferrer);
+            depth++;
+        }
+    }
+
     // ============ View Functions ============
 
     /**
-     * @dev Get current daily emission rate (for dashboard)
-     */
-    function currentDailyEmission() external view returns (uint256) {
-        return (BASE_DAILY_EMISSION * emissionFactor * pidMultiplier) / (10**18 * 10**18);
-    }
-
-    /**
-     * @dev Get user's mining stats
+     * @dev Get user mining stats
      */
     function getUserMiningStats(address user) external view returns (
-        uint256 _pendingReward,
-        uint256 _totalClaimed,
-        uint256 _referralEarnings,
-        uint256 _vestedAmount,
-        uint256 _claimableVested,
-        uint256 _bondPower
+        uint256 bondPower,
+        uint256 pendingRewards,
+        uint256 totalVested,
+        uint256 totalClaimed,
+        uint256 claimableNow
     ) {
         UserInfo storage info = userInfo[user];
+        bondPower = info.bondPower;
+        pendingRewards = pendingIvy(user);
+        totalVested = info.totalVested;
+        totalClaimed = info.totalClaimed;
         
-        _pendingReward = pendingIvy(user);
-        _totalClaimed = info.totalClaimed;
-        _referralEarnings = referralRewardsEarned[user];
-        _vestedAmount = info.totalVested;
-        
-        // Calculate claimable vested
-        if (info.totalVested > 0 && info.vestingStartTime > 0) {
+        if (info.vestingStartTime > 0 && info.totalVested > 0) {
             uint256 timeElapsed = block.timestamp - info.vestingStartTime;
-            uint256 vestedSoFar;
+            uint256 vestedAmount;
             if (timeElapsed >= VESTING_PERIOD) {
-                vestedSoFar = info.totalVested;
+                vestedAmount = info.totalVested;
             } else {
-                vestedSoFar = (info.totalVested * timeElapsed) / VESTING_PERIOD;
+                vestedAmount = (info.totalVested * timeElapsed) / VESTING_PERIOD;
             }
-            _claimableVested = vestedSoFar > info.totalClaimed ? vestedSoFar - info.totalClaimed : 0;
+            claimableNow = vestedAmount > info.totalClaimed ? vestedAmount - info.totalClaimed : 0;
         }
-        
-        _bondPower = info.bondPower;
-    }
-
-    /**
-     * @dev Get protocol stats (for dashboard)
-     */
-    function getProtocolStats() external view returns (
-        uint256 _totalMinted,
-        uint256 _hardCap,
-        uint256 _emissionFactor,
-        uint256 _pidMultiplier,
-        uint256 _totalPoolBondPower,
-        uint256 _emissionPerSecond
-    ) {
-        return (
-            totalMinted,
-            HARD_CAP,
-            emissionFactor,
-            pidMultiplier,
-            totalPoolBondPower,
-            EMISSION_PER_SECOND
-        );
     }
 
     /**
@@ -508,31 +651,66 @@ contract IvyCore is Ownable, ReentrancyGuard {
     function getVestingInfo(address user) external view returns (
         uint256 totalVested,
         uint256 totalClaimed,
-        uint256 claimable,
         uint256 vestingStartTime,
-        uint256 vestingEndTime,
-        uint256 percentVested
+        uint256 claimableNow,
+        uint256 remainingLocked,
+        uint256 vestingProgress
     ) {
         UserInfo storage info = userInfo[user];
-        
         totalVested = info.totalVested;
         totalClaimed = info.totalClaimed;
         vestingStartTime = info.vestingStartTime;
-        vestingEndTime = info.vestingStartTime + VESTING_PERIOD;
         
-        if (info.totalVested > 0 && info.vestingStartTime > 0) {
+        if (info.vestingStartTime > 0 && info.totalVested > 0) {
             uint256 timeElapsed = block.timestamp - info.vestingStartTime;
-            uint256 vestedSoFar;
+            uint256 vestedAmount;
             
             if (timeElapsed >= VESTING_PERIOD) {
-                vestedSoFar = info.totalVested;
-                percentVested = 10000;  // 100%
+                vestedAmount = info.totalVested;
+                vestingProgress = 10000;  // 100%
             } else {
-                vestedSoFar = (info.totalVested * timeElapsed) / VESTING_PERIOD;
-                percentVested = (timeElapsed * 10000) / VESTING_PERIOD;
+                vestedAmount = (info.totalVested * timeElapsed) / VESTING_PERIOD;
+                vestingProgress = (timeElapsed * 10000) / VESTING_PERIOD;
             }
             
-            claimable = vestedSoFar > info.totalClaimed ? vestedSoFar - info.totalClaimed : 0;
+            claimableNow = vestedAmount > info.totalClaimed ? vestedAmount - info.totalClaimed : 0;
+            remainingLocked = info.totalVested - vestedAmount;
         }
+    }
+
+    /**
+     * @dev Get protocol stats
+     */
+    function getProtocolStats() external view returns (
+        uint256 _totalMinted,
+        uint256 _hardCap,
+        uint256 _emissionFactor,
+        uint256 _finalMultiplier,
+        uint256 _totalPoolBondPower,
+        uint256 _emissionPerSecond,
+        uint256 _currentDailyEmission
+    ) {
+        _totalMinted = totalMinted;
+        _hardCap = HARD_CAP;
+        _emissionFactor = emissionFactor;
+        _finalMultiplier = getFinalMultiplier();
+        _totalPoolBondPower = totalPoolBondPower;
+        _emissionPerSecond = EMISSION_PER_SECOND;
+        _currentDailyEmission = (BASE_DAILY_EMISSION * emissionFactor * _finalMultiplier) / (10**18 * 10**18);
+    }
+
+    /**
+     * @dev Get current daily emission (for dashboard)
+     */
+    function currentDailyEmission() external view returns (uint256) {
+        uint256 finalMultiplier = getFinalMultiplier();
+        return (BASE_DAILY_EMISSION * emissionFactor * finalMultiplier) / (10**18 * 10**18);
+    }
+
+    /**
+     * @dev Get PID alpha (for UI display)
+     */
+    function getPIDAlpha() external view returns (uint256) {
+        return _calculatePIDAlpha(currentPrice, ma30Price);
     }
 }
