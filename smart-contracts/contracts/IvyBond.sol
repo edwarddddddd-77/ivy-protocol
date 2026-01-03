@@ -217,13 +217,25 @@ contract IvyBond is Ownable, ReentrancyGuard {
 
     /**
      * @dev Calculate bond power from deposit amount
-     * Bond power determines share of mining rewards
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              WHITEPAPER COMPLIANCE (P3, P6)                   ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Only Tranche B (50%) of deposit is used for mining power    ║
+     * ║  Bond Power = Deposit Amount × 50%                           ║
+     * ║                                                               ║
+     * ║  Example: User deposits 10,000 USDT                          ║
+     * ║  - 5,000 USDT (50%) → Mining Power (Tranche B)               ║
+     * ║  - 4,000 USDT (40%) → RWA Assets (Tranche A)                 ║
+     * ║  - 1,000 USDT (10%) → Reserve Pool                           ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     * 
      * @param depositAmount Amount deposited
-     * @return Bond power value
+     * @return Bond power value (50% of deposit)
      */
     function _calculateBondPower(uint256 depositAmount) internal pure returns (uint256) {
-        // 1 USDT = 1 Bond Power (can be adjusted for tiers later)
-        return depositAmount;
+        // Bond Power = Deposit × 50% (Only Tranche B is used for mining)
+        return (depositAmount * LIQUIDITY_RATE) / BASIS_POINTS;
     }
 
     // ============ View Functions ============
@@ -296,5 +308,30 @@ contract IvyBond is Ownable, ReentrancyGuard {
         address _reservePool
     ) {
         return (liquidityPool, rwaWallet, reservePool);
+    }
+    
+    /**
+     * @dev Get user's fund allocation breakdown (for UI display)
+     * Shows how user's deposit is split according to whitepaper
+     * @param user User address
+     * @return totalDeposited Total amount deposited by user
+     * @return miningPrincipal Amount allocated to mining (50% - Tranche B)
+     * @return rwaAssets Amount allocated to RWA (40% - Tranche A)
+     * @return reserveAmount Amount allocated to reserve (10%)
+     * @return effectiveMiningPower Mining power after boosts (calculated by IvyCore)
+     */
+    function getFundAllocation(address user) external view returns (
+        uint256 totalDeposited,
+        uint256 miningPrincipal,
+        uint256 rwaAssets,
+        uint256 reserveAmount,
+        uint256 effectiveMiningPower
+    ) {
+        BondInfo memory bond = bonds[user];
+        totalDeposited = bond.totalDeposited;
+        miningPrincipal = (totalDeposited * LIQUIDITY_RATE) / BASIS_POINTS;  // 50%
+        rwaAssets = (totalDeposited * RWA_RATE) / BASIS_POINTS;              // 40%
+        reserveAmount = (totalDeposited * RESERVE_RATE) / BASIS_POINTS;      // 10%
+        effectiveMiningPower = bond.bondPower;  // This is already 50% of deposit
     }
 }

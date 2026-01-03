@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { Wallet, TrendingUp, Clock, Coins, ArrowRight, Zap, Sparkles } from 'lucide-react';
+import { Wallet, TrendingUp, Clock, Coins, ArrowRight, Zap, Sparkles, PieChart, Shield, Landmark } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useReferral } from '@/contexts/ReferralContext';
 import addresses from '@/contracts/addresses.json';
@@ -20,11 +20,11 @@ export function TreasuryPanel() {
   const [isApproving, setIsApproving] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
 
-  // Read user's bond info
-  const { data: bondInfo, isLoading: isLoadingBond, refetch: refetchBond } = useReadContract({
+  // Read user's fund allocation (new function for whitepaper compliance)
+  const { data: fundAllocation, isLoading: isLoadingAllocation, refetch: refetchAllocation } = useReadContract({
     address: addresses.IvyBond as `0x${string}`,
     abi: abis.IvyBond,
-    functionName: 'getBondInfo',
+    functionName: 'getFundAllocation',
     args: [address],
     query: { enabled: !!address && isConnected && addresses.IvyBond !== '0x0000000000000000000000000000000000000000' }
   });
@@ -87,10 +87,12 @@ export function TreasuryPanel() {
     hash: depositHash,
   });
 
-  // Parse data
-  const totalDeposited = bondInfo ? Number((bondInfo as any)[0]) / 1e18 : 0;
-  const bondPower = bondInfo ? Number((bondInfo as any)[2]) / 1e18 : 0;
-  const shareOfPool = bondInfo ? Number((bondInfo as any)[3]) / 100 : 0;
+  // Parse fund allocation data (whitepaper compliant)
+  const totalDeposited = fundAllocation ? Number((fundAllocation as any)[0]) / 1e18 : 0;
+  const miningPrincipal = fundAllocation ? Number((fundAllocation as any)[1]) / 1e18 : 0;  // 50%
+  const rwaAssets = fundAllocation ? Number((fundAllocation as any)[2]) / 1e18 : 0;        // 40%
+  const reserveAmount = fundAllocation ? Number((fundAllocation as any)[3]) / 1e18 : 0;    // 10%
+  const baseMiningPower = fundAllocation ? Number((fundAllocation as any)[4]) / 1e18 : 0;  // Bond Power (50%)
 
   const pendingReward = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
   const totalClaimed = miningStats ? Number((miningStats as any)[1]) / 1e18 : 0;
@@ -106,8 +108,8 @@ export function TreasuryPanel() {
   const selfBoostPercent = selfBoostBps / 100;
   const teamAuraPercent = teamAuraBps / 100;
 
-  // Calculate Mining Power = Principal * (1 + TotalBoost%)
-  const miningPower = totalDeposited * (1 + userBoostPercent / 100);
+  // Calculate Effective Mining Power = Base Mining Power (50%) × (1 + TotalBoost%)
+  const effectiveMiningPower = baseMiningPower * (1 + userBoostPercent / 100);
   const hasBoost = userBoostPercent > 0;
 
   const usdtBalanceNum = usdtBalance ? Number(usdtBalance as any) / 1e18 : 0;
@@ -177,11 +179,11 @@ export function TreasuryPanel() {
       setIsDepositing(false);
       toast.success('Deposit Successful!');
       setDepositAmount('');
-      refetchBond();
+      refetchAllocation();
       refetchMining();
       refetchUsdtBalance();
     }
-  }, [isDepositSuccess, isDepositing, refetchBond, refetchMining, refetchUsdtBalance]);
+  }, [isDepositSuccess, isDepositing, refetchAllocation, refetchMining, refetchUsdtBalance]);
 
   // Quick amount buttons
   const quickAmounts = [100, 500, 1000, 5000];
@@ -210,77 +212,127 @@ export function TreasuryPanel() {
         </div>
       </div>
 
-      {/* My Principal (本金) */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* FUND ALLOCATION BREAKDOWN - Whitepaper Compliant (P3, P6)      */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      
+      {/* Total Deposit */}
       <div className="mb-4 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-blue-600/10 border border-blue-500/20">
         <div className="flex items-center gap-2 mb-2">
           <Coins className="w-4 h-4 text-blue-400" />
-          <span className="text-sm text-gray-400">{t('treasury.my_principal')}</span>
+          <span className="text-sm text-gray-400">Total Deposit (总投入)</span>
         </div>
         <div className="text-3xl font-bold text-white font-mono">
           {totalDeposited.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           <span className="text-lg text-gray-400 ml-2">USDT</span>
         </div>
-        {bondPower > 0 && (
-          <div className="text-xs text-gray-500 mt-1">
-            {t('treasury.pool_share')}: {shareOfPool.toFixed(4)}%
-          </div>
-        )}
       </div>
 
-      {/* Mining Power (挖矿算力) - NEW SECTION */}
-      <div className={`mb-6 p-4 rounded-lg border ${hasBoost ? 'bg-gradient-to-r from-primary/10 to-purple-500/10 border-primary/30' : 'bg-black/40 border-white/10'}`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Zap className={`w-4 h-4 ${hasBoost ? 'text-primary' : 'text-gray-400'}`} />
-            <span className="text-sm text-gray-400">{t('treasury.mining_power') || 'Mining Power'}</span>
+      {/* Fund Split Visualization - 50/40/10 */}
+      {totalDeposited > 0 && (
+        <div className="mb-6 space-y-3">
+          {/* Mining Principal (50% - Tranche B) - HIGHLIGHTED */}
+          <div className="p-4 rounded-lg bg-gradient-to-r from-primary/20 to-green-500/20 border-2 border-primary/50">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-primary" />
+                <span className="text-sm font-bold text-white">Effective Mining Principal (矿机本金 50%)</span>
+              </div>
+              <div className="px-2 py-0.5 bg-primary/30 rounded text-[10px] text-primary font-bold">
+                MINING IVY
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-primary font-mono">
+              {miningPrincipal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <span className="text-sm text-gray-400 ml-2">USDT</span>
+            </div>
+            <div className="text-[10px] text-gray-500 mt-1">
+              Only this portion generates IVY mining rewards
+            </div>
           </div>
-          {hasBoost && (
-            <div className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 rounded-full">
-              <Sparkles className="w-3 h-3 text-primary" />
-              <span className="text-[10px] text-primary font-bold">BOOST ACTIVE</span>
+
+          {/* RWA Assets (40% - Tranche A) */}
+          <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-purple-400" />
+                <span className="text-sm text-gray-300">RWA Assets (国债资产 40%)</span>
+              </div>
+              <div className="text-lg font-bold text-purple-400 font-mono">
+                {rwaAssets.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span className="text-xs text-gray-500 ml-1">USDT</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Reserve (10%) */}
+          <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-yellow-400" />
+                <span className="text-sm text-gray-300">Reserve (储备金 10%)</span>
+              </div>
+              <div className="text-lg font-bold text-yellow-400 font-mono">
+                {reserveAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span className="text-xs text-gray-500 ml-1">USDT</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Effective Mining Power with Boost */}
+      {totalDeposited > 0 && (
+        <div className={`mb-6 p-4 rounded-lg border ${hasBoost ? 'bg-gradient-to-r from-primary/10 to-purple-500/10 border-primary/30' : 'bg-black/40 border-white/10'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className={`w-4 h-4 ${hasBoost ? 'text-primary' : 'text-gray-400'}`} />
+              <span className="text-sm text-gray-400">Effective Mining Power (有效挖矿算力)</span>
+            </div>
+            {hasBoost && (
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 rounded-full">
+                <Sparkles className="w-3 h-3 text-primary" />
+                <span className="text-[10px] text-primary font-bold">+{userBoostPercent}% BOOST</span>
+              </div>
+            )}
+          </div>
+          
+          <div className="text-3xl font-bold font-mono">
+            <span className={hasBoost ? 'text-primary' : 'text-white'}>
+              {effectiveMiningPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-lg text-gray-400 ml-2">Power</span>
+          </div>
+          
+          {/* Boost Calculation Formula */}
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <div className="text-[10px] text-gray-500 font-mono">
+              Formula: {miningPrincipal.toLocaleString()} (50%) × (1 + {userBoostPercent}%) = {effectiveMiningPower.toLocaleString()}
+            </div>
+            {hasBoost && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selfBoostPercent > 0 && (
+                  <div className="px-2 py-1 bg-primary/10 rounded text-[10px] font-mono text-primary border border-primary/20">
+                    Self Boost: +{selfBoostPercent}%
+                  </div>
+                )}
+                {teamAuraPercent > 0 && (
+                  <div className="px-2 py-1 bg-purple-500/10 rounded text-[10px] font-mono text-purple-400 border border-purple-500/20">
+                    Team Aura: +{teamAuraPercent}%
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* No Boost Message */}
+          {!hasBoost && totalDeposited > 0 && (
+            <div className="mt-2 text-[10px] text-gray-500">
+              💡 Purchase a Genesis Node to get +10% mining boost!
             </div>
           )}
         </div>
-        
-        <div className="text-3xl font-bold font-mono">
-          <span className={hasBoost ? 'text-primary' : 'text-white'}>
-            {miningPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-          <span className="text-lg text-gray-400 ml-2">Power</span>
-        </div>
-        
-        {/* Boost Breakdown */}
-        {hasBoost && (
-          <div className="mt-3 pt-3 border-t border-white/10">
-            <div className="text-xs text-gray-400 mb-2">Boost Breakdown:</div>
-            <div className="flex flex-wrap gap-2">
-              {selfBoostPercent > 0 && (
-                <div className="px-2 py-1 bg-primary/10 rounded text-[10px] font-mono text-primary border border-primary/20">
-                  Self Boost: +{selfBoostPercent}%
-                </div>
-              )}
-              {teamAuraPercent > 0 && (
-                <div className="px-2 py-1 bg-purple-500/10 rounded text-[10px] font-mono text-purple-400 border border-purple-500/20">
-                  Team Aura: +{teamAuraPercent}%
-                </div>
-              )}
-              <div className="px-2 py-1 bg-white/5 rounded text-[10px] font-mono text-white border border-white/10">
-                Total: +{userBoostPercent}%
-              </div>
-            </div>
-            <div className="text-[10px] text-gray-500 mt-2 font-mono">
-              Formula: {totalDeposited.toLocaleString()} × (1 + {userBoostPercent}%) = {miningPower.toLocaleString()}
-            </div>
-          </div>
-        )}
-        
-        {/* No Boost Message */}
-        {!hasBoost && totalDeposited > 0 && (
-          <div className="mt-2 text-[10px] text-gray-500">
-            💡 Purchase a Genesis Node to get +10% mining boost!
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Yield Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3">
@@ -312,27 +364,6 @@ export function TreasuryPanel() {
           <span className="text-lg font-bold text-purple-400 font-mono">
             {referralEarnings.toFixed(2)} IVY
           </span>
-        </div>
-      </div>
-
-      {/* Fund Flow Diagram */}
-      <div className="mb-6 p-3 rounded-lg bg-black/40 border border-white/10">
-        <div className="text-xs text-gray-400 mb-2">{t('treasury.fund_distribution')}</div>
-        <div className="flex items-center justify-between text-[10px] font-mono">
-          <div className="text-center">
-            <div className="text-blue-400">50%</div>
-            <div className="text-gray-500">{t('treasury.liquidity')}</div>
-          </div>
-          <ArrowRight className="w-3 h-3 text-gray-600" />
-          <div className="text-center">
-            <div className="text-purple-400">40%</div>
-            <div className="text-gray-500">{t('treasury.rwa')}</div>
-          </div>
-          <ArrowRight className="w-3 h-3 text-gray-600" />
-          <div className="text-center">
-            <div className="text-green-400">10%</div>
-            <div className="text-gray-500">{t('treasury.reserve')}</div>
-          </div>
         </div>
       </div>
 
@@ -374,13 +405,23 @@ export function TreasuryPanel() {
           </span>
         </div>
 
-        {/* Preview Mining Power after deposit */}
+        {/* Preview Fund Split after deposit */}
         {depositAmount && Number(depositAmount) >= 10 && (
-          <div className="p-2 rounded bg-primary/5 border border-primary/10">
-            <div className="text-[10px] text-gray-400">After deposit, your Mining Power will be:</div>
-            <div className="text-sm font-bold text-primary font-mono">
-              {((totalDeposited + Number(depositAmount)) * (1 + userBoostPercent / 100)).toLocaleString(undefined, { maximumFractionDigits: 2 })} Power
-              {hasBoost && <span className="text-[10px] text-gray-400 ml-1">(+{userBoostPercent}% boost)</span>}
+          <div className="p-3 rounded bg-primary/5 border border-primary/10 space-y-2">
+            <div className="text-[10px] text-gray-400 font-bold">After deposit, your funds will be split:</div>
+            <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+              <div className="text-center p-2 bg-primary/10 rounded">
+                <div className="text-primary font-bold">{(Number(depositAmount) * 0.5).toLocaleString()}</div>
+                <div className="text-gray-500">Mining (50%)</div>
+              </div>
+              <div className="text-center p-2 bg-purple-500/10 rounded">
+                <div className="text-purple-400 font-bold">{(Number(depositAmount) * 0.4).toLocaleString()}</div>
+                <div className="text-gray-500">RWA (40%)</div>
+              </div>
+              <div className="text-center p-2 bg-yellow-500/10 rounded">
+                <div className="text-yellow-400 font-bold">{(Number(depositAmount) * 0.1).toLocaleString()}</div>
+                <div className="text-gray-500">Reserve (10%)</div>
+              </div>
             </div>
           </div>
         )}
