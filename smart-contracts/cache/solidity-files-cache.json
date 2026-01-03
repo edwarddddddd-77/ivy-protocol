@@ -613,8 +613,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyCore.sol": {
-      "lastModificationDate": 1767435441597,
-      "contentHash": "3c1d347d6f8c0f760d59bfbc616d5355",
+      "lastModificationDate": 1767464715130,
+      "contentHash": "f6b24488d31b79eff9cd0f1b7f18ba73",
       "sourceName": "contracts/IvyCore.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -645,8 +645,7 @@
         "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
         "./IvyToken.sol",
         "./IGenesisNode.sol",
-        "./IIvyBond.sol",
-        "./IPriceOracle.sol"
+        "./IIvyBond.sol"
       ],
       "versionPragmas": [
         "^0.8.20"
@@ -692,8 +691,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyToken.sol": {
-      "lastModificationDate": 1767117594343,
-      "contentHash": "096d2edf3e879574ba89bae613c55d7f",
+      "lastModificationDate": 1767464709070,
+      "contentHash": "62de6179ad5cd8893a38347e39d37e23",
       "sourceName": "contracts/IvyToken.sol",
       "solcConfig": {
         "version": "0.8.20",

@@ -1,4 +1,4 @@
-import { useReadContract, useWriteContract, useAccount, useBalance } from "wagmi";
+import { useReadContract, useWriteContract, useAccount } from "wagmi";
 import addresses from "../contracts/addresses.json";
 import abis from "../contracts/abis.json";
 import { formatEther } from "viem";
@@ -7,35 +7,33 @@ export function useIvyContract() {
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
 
-  // Read: Daily Mint Amount
-  const { data: dailyMintAmount } = useReadContract({
+  // Read: Current Daily Emission (from IvyCore)
+  const { data: currentDailyEmission } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
     abi: abis.IvyCore,
-    functionName: "calculateDailyMint",
-    args: [address || "0x0000000000000000000000000000000000000000"],
+    functionName: "currentDailyEmission",
     query: {
-      enabled: !!address,
       refetchInterval: 5000,
     }
   });
 
-  // Read: Circuit Breaker Status
-  const { data: cbStatus } = useReadContract({
+  // Read: Protocol Stats (totalMinted, hardCap, emissionFactor, pidMultiplier, totalPoolBondPower, emissionPerSecond)
+  const { data: protocolStats } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
     abi: abis.IvyCore,
-    functionName: "cbStatus",
+    functionName: "getProtocolStats",
     query: {
-      refetchInterval: 2000,
+      refetchInterval: 5000,
     }
   });
 
-  // Read: Effective Alpha (for Rotation Speed)
-  const { data: effectiveAlpha } = useReadContract({
-    address: addresses.IvyCore as `0x${string}`,
-    abi: abis.IvyCore,
-    functionName: "getEffectiveAlpha",
+  // Read: Genesis Node Total Supply
+  const { data: nodeTotalSupply } = useReadContract({
+    address: addresses.GenesisNode as `0x${string}`,
+    abi: abis.GenesisNode,
+    functionName: "totalSupply",
     query: {
-      refetchInterval: 2000,
+      refetchInterval: 10000,
     }
   });
 
@@ -51,23 +49,116 @@ export function useIvyContract() {
     }
   });
 
-  // Write: Mint Daily
-  const mintDaily = async () => {
+  // Read: User Mining Stats
+  const { data: userMiningStats } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: "getUserMiningStats",
+    args: [address || "0x0000000000000000000000000000000000000000"],
+    query: {
+      enabled: !!address,
+      refetchInterval: 5000,
+    }
+  });
+
+  // Read: User Vesting Info
+  const { data: vestingInfo } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: "getVestingInfo",
+    args: [address || "0x0000000000000000000000000000000000000000"],
+    query: {
+      enabled: !!address,
+      refetchInterval: 5000,
+    }
+  });
+
+  // Read: Pending IVY (real-time)
+  const { data: pendingIvy } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: "pendingIvy",
+    args: [address || "0x0000000000000000000000000000000000000000"],
+    query: {
+      enabled: !!address,
+      refetchInterval: 3000,  // Update every 3 seconds for real-time feel
+    }
+  });
+
+  // Parse protocol stats
+  const stats = protocolStats as any;
+  const pidMultiplier = stats ? Number(formatEther(stats[3] as bigint)) : 1.0;
+  const emissionFactor = stats ? Number(formatEther(stats[2] as bigint)) : 1.0;
+
+  // Write: Harvest (move pending to vesting)
+  const harvest = async () => {
     if (!address) throw new Error("Wallet not connected");
     return writeContractAsync({
       address: addresses.IvyCore as `0x${string}`,
       abi: abis.IvyCore,
-      functionName: "mintDaily",
+      functionName: "harvest",
+    });
+  };
+
+  // Write: Claim Vested (30-day linear release)
+  const claimVested = async () => {
+    if (!address) throw new Error("Wallet not connected");
+    return writeContractAsync({
+      address: addresses.IvyCore as `0x${string}`,
+      abi: abis.IvyCore,
+      functionName: "claimVested",
+    });
+  };
+
+  // Write: Instant Cash Out (50% burn)
+  const instantCashOut = async () => {
+    if (!address) throw new Error("Wallet not connected");
+    return writeContractAsync({
+      address: addresses.IvyCore as `0x${string}`,
+      abi: abis.IvyCore,
+      functionName: "instantCashOut",
+    });
+  };
+
+  // Write: Sync User (update bond power)
+  const syncUser = async () => {
+    if (!address) throw new Error("Wallet not connected");
+    return writeContractAsync({
+      address: addresses.IvyCore as `0x${string}`,
+      abi: abis.IvyCore,
+      functionName: "syncUser",
       args: [address],
     });
   };
 
   return {
-    dailyMintAmount: dailyMintAmount ? formatEther(dailyMintAmount as bigint) : "0",
-    cbStatus: cbStatus as any, // { level, triggerTime, triggerPrice, forcedAlpha, isActive }
-    effectiveAlpha: effectiveAlpha ? Number(formatEther(effectiveAlpha as bigint)) : 1.2,
+    // Dashboard Data
+    dailyMintAmount: currentDailyEmission ? formatEther(currentDailyEmission as bigint) : "30000",
+    nodeTotalSupply: nodeTotalSupply ? Number(nodeTotalSupply) : 0,
+    pidMultiplier: pidMultiplier,
+    effectiveAlpha: pidMultiplier * emissionFactor,  // Combined multiplier for UI
+    
+    // User Data
     ivyBalance: ivyBalance ? formatEther(ivyBalance as bigint) : "0",
-    mintDaily,
+    pendingIvy: pendingIvy ? formatEther(pendingIvy as bigint) : "0",
+    
+    // Mining Stats
+    userMiningStats: userMiningStats as any,
+    
+    // Vesting Info
+    vestingInfo: vestingInfo as any,
+    
+    // Protocol Stats
+    protocolStats: stats,
+    
+    // Circuit Breaker (simplified for now)
+    cbStatus: { isActive: false, level: 0 },
+    
+    // Actions
+    harvest,
+    claimVested,
+    instantCashOut,
+    syncUser,
     mintGenesisNode: async () => {
       if (!address) throw new Error("Wallet not connected");
       const referrer = localStorage.getItem('ivy_referrer') || '0x0000000000000000000000000000000000000000';

@@ -17,4 +17,13 @@ contract IvyToken is ERC20, Ownable {
         require(msg.sender == minter, "Not minter");
         _mint(to, amount);
     }
+    
+    function burn(uint256 amount) external {
+        _burn(msg.sender, amount);
+    }
+    
+    function burnFrom(address account, uint256 amount) external {
+        require(msg.sender == minter, "Not minter");
+        _burn(account, amount);
+    }
 }

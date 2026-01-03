@@ -156,6 +156,15 @@ const translations: Record<Language, Record<string, string>> = {
     'faucet.success': 'Tokens claimed successfully!',
     'faucet.not_deployed': 'Contract Not Deployed',
     'faucet.deploy_first': 'Deploy MockUSDT contract first',
+    
+    // ==================== Dashboard ====================
+    'dashboard.daily_mint': 'Daily Mint',
+    'dashboard.nodes': 'Nodes',
+    'dashboard.your_balance': 'Your Balance',
+    'dashboard.pid_status': 'PID Status',
+    'dashboard.genesis': 'Genesis',
+    'dashboard.boost_active': 'Boost Active',
+    'dashboard.ivy_per_day': 'IVY / Day',
   },
   zh: {
     // ==================== 首頁 ====================
@@ -304,6 +313,15 @@ const translations: Record<Language, Record<string, string>> = {
     'faucet.success': '代幣領取成功！',
     'faucet.not_deployed': '合約未部署',
     'faucet.deploy_first': '請先部署 MockUSDT 合約',
+    
+    // ==================== 儀表盤 ====================
+    'dashboard.daily_mint': '每日產出',
+    'dashboard.nodes': '全網節點',
+    'dashboard.your_balance': '您的餘額',
+    'dashboard.pid_status': 'PID 狀態',
+    'dashboard.genesis': '創世',
+    'dashboard.boost_active': '加成激活',
+    'dashboard.ivy_per_day': 'IVY / 天',
   }
 };
 

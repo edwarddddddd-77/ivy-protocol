@@ -6,17 +6,25 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./IvyToken.sol";
 import "./IGenesisNode.sol";
 import "./IIvyBond.sol";
-import "./IPriceOracle.sol";
 
 /**
  * @title IvyCore
  * @dev Core Mining & Reward Distribution Contract for Ivy Protocol
  * 
  * ╔═══════════════════════════════════════════════════════════════╗
- * ║                    DUAL-TRACK ARCHITECTURE                    ║
+ * ║              REWARD PER SECOND (RPS) ALGORITHM                ║
  * ╠═══════════════════════════════════════════════════════════════╣
- * ║  Track 1: GenesisNode (Identity) - NFT holding boosts         ║
- * ║  Track 2: IvyBond (Investment) - Deposit-based bond power     ║
+ * ║  - NO daily snapshots (prevents front-running)                ║
+ * ║  - Rewards calculated per-second based on time elapsed        ║
+ * ║  - updatePool() called on every deposit/withdraw/claim        ║
+ * ║  - accIvyPerShare tracks cumulative rewards per bond power    ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ * 
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                 30-DAY VESTING (vIVY LOCK)                    ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  Option A: Standard Unlock - 30 day linear release            ║
+ * ║  Option B: Instant Cash - Immediate, but 50% burned           ║
  * ╚═══════════════════════════════════════════════════════════════╝
  * 
  * ╔═══════════════════════════════════════════════════════════════╗
@@ -25,20 +33,15 @@ import "./IPriceOracle.sol";
  * ║  L1 (Direct):     10% of mining output                        ║
  * ║  L2 (Indirect):   5% of mining output                         ║
  * ║  L3+ (Infinite):  2% differential (first qualified upline)    ║
- * ╠═══════════════════════════════════════════════════════════════╣
- * ║  IMPORTANT: Rewards come from Mining Pool, NOT user principal ║
  * ╚═══════════════════════════════════════════════════════════════╝
  */
 contract IvyCore is Ownable, ReentrancyGuard {
     
     // ============ Interfaces ============
-
-    // ============ State Variables ============
     
     IGenesisNode public genesisNode;
     IIvyBond public ivyBond;
     IvyToken public ivyToken;
-    IPriceOracle public priceOracle;
     
     // ============ Constants ============
     
@@ -51,8 +54,11 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Maximum referral depth for gas protection
     uint256 public constant MAX_REFERRAL_DEPTH = 20;
     
-    /// @notice Base daily emission rate
+    /// @notice Base daily emission rate: 30,000 IVY per day
     uint256 public constant BASE_DAILY_EMISSION = 30_000 * 10**18;
+    
+    /// @notice Emission rate per second: 30,000 / 86400 ≈ 0.3472 IVY/sec
+    uint256 public constant EMISSION_PER_SECOND = BASE_DAILY_EMISSION / 86400;
     
     /// @notice Hard cap for total IVY supply
     uint256 public constant HARD_CAP = 100_000_000 * 10**18;
@@ -61,10 +67,25 @@ contract IvyCore is Ownable, ReentrancyGuard {
     uint256 public constant HALVING_THRESHOLD = 7_000_000 * 10**18;
     uint256 public constant HALVING_DECAY = 95;  // 95% of previous rate
     
-    /// @notice Claim cooldown period
-    uint256 public constant CLAIM_COOLDOWN = 24 hours;
+    /// @notice Vesting period: 30 days
+    uint256 public constant VESTING_PERIOD = 30 days;
+    
+    /// @notice Instant cash penalty: 50% burned
+    uint256 public constant INSTANT_CASH_PENALTY = 5000;  // 50% in basis points
+    
+    /// @notice Precision for accIvyPerShare calculation
+    uint256 public constant ACC_IVY_PRECISION = 1e12;
 
-    // ============ State Variables (continued) ============
+    // ============ Pool State (Reward Per Second) ============
+    
+    /// @notice Accumulated IVY per share (scaled by ACC_IVY_PRECISION)
+    uint256 public accIvyPerShare;
+    
+    /// @notice Last timestamp when pool was updated
+    uint256 public lastRewardTime;
+    
+    /// @notice Total bond power in the pool
+    uint256 public totalPoolBondPower;
     
     /// @notice Current emission factor (decreases with halving)
     uint256 public emissionFactor = 10**18;  // 1.0 in 18 decimals
@@ -75,33 +96,42 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Last halving checkpoint
     uint256 public lastHalvingMinted;
     
-    /// @notice User claim tracking
-    mapping(address => uint256) public lastClaimTime;
-    mapping(address => uint256) public totalClaimed;
+    /// @notice PID multiplier for dynamic emission control
+    uint256 public pidMultiplier = 10**18;  // 1.0x default
+
+    // ============ User State ============
+    
+    struct UserInfo {
+        uint256 bondPower;           // User's bond power snapshot
+        uint256 rewardDebt;          // Reward debt for RPS calculation
+        uint256 pendingVested;       // Pending vested rewards (locked)
+        uint256 vestingStartTime;    // When vesting started
+        uint256 totalVested;         // Total amount in vesting
+        uint256 totalClaimed;        // Total IVY claimed (unlocked)
+    }
+    
+    mapping(address => UserInfo) public userInfo;
     
     /// @notice Referral rewards tracking
     mapping(address => uint256) public referralRewardsEarned;
 
     // ============ Events ============
     
-    event RewardsClaimed(
-        address indexed user,
-        uint256 baseReward,
-        uint256 boostedReward,
-        uint256 timestamp
-    );
-    event ReferralRewardPaid(
-        address indexed referrer,
-        address indexed from,
-        uint256 amount,
-        uint256 level
-    );
+    event PoolUpdated(uint256 accIvyPerShare, uint256 lastRewardTime, uint256 totalPoolBondPower);
+    event UserSynced(address indexed user, uint256 bondPower, uint256 rewardDebt);
+    event RewardsHarvested(address indexed user, uint256 amount);
+    event VestingStarted(address indexed user, uint256 amount, uint256 startTime);
+    event VestingClaimed(address indexed user, uint256 amount);
+    event InstantCashOut(address indexed user, uint256 received, uint256 burned);
+    event ReferralRewardPaid(address indexed referrer, address indexed from, uint256 amount, uint256 level);
     event HalvingOccurred(uint256 newEmissionFactor, uint256 totalMinted);
+    event PidMultiplierUpdated(uint256 newMultiplier);
 
     // ============ Constructor ============
     
     constructor(address _ivyToken) Ownable(msg.sender) {
         ivyToken = IvyToken(_ivyToken);
+        lastRewardTime = block.timestamp;
     }
 
     // ============ Admin Functions ============
@@ -115,105 +145,241 @@ contract IvyCore is Ownable, ReentrancyGuard {
         require(_ivyBond != address(0), "Invalid address");
         ivyBond = IIvyBond(_ivyBond);
     }
+    
+    function setPidMultiplier(uint256 _multiplier) external onlyOwner {
+        require(_multiplier >= 5 * 10**17 && _multiplier <= 2 * 10**18, "Invalid multiplier");
+        pidMultiplier = _multiplier;
+        emit PidMultiplierUpdated(_multiplier);
+    }
 
-    // ============ Core Mining Functions ============
+    // ============ Core Mining Functions (Reward Per Second) ============
 
     /**
-     * @dev Calculate user's daily mining reward
+     * @dev Update pool's accumulated rewards
      * 
-     * Formula: baseEmission * bondPower * (1 + totalBoost) * emissionFactor
-     * 
-     * Boost Components:
-     * - selfBoost: +10% if user holds Genesis Node NFT
-     * - teamAura: +2% if user's referrer holds Genesis Node NFT
-     * 
-     * @param user User address
-     * @return Calculated reward amount
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              UPDATE POOL - REWARD PER SECOND                  ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Called on every: deposit, withdraw, claim, sync              ║
+     * ║                                                               ║
+     * ║  Formula:                                                     ║
+     * ║  timeElapsed = block.timestamp - lastRewardTime               ║
+     * ║  ivyReward = timeElapsed * EMISSION_PER_SECOND * factors      ║
+     * ║  accIvyPerShare += ivyReward * ACC_IVY_PRECISION / totalPower ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
-    function calculateDailyReward(address user) public view returns (uint256) {
-        // Must have a bond to earn rewards
-        if (address(ivyBond) == address(0) || !ivyBond.hasBond(user)) {
-            return 0;
+    function updatePool() public {
+        if (block.timestamp <= lastRewardTime) {
+            return;
         }
         
-        // Get bond power (determines base share)
-        uint256 bondPower = ivyBond.getBondPower(user);
-        if (bondPower == 0) return 0;
+        if (totalPoolBondPower == 0) {
+            lastRewardTime = block.timestamp;
+            return;
+        }
         
-        // Get boost from GenesisNode (selfBoost + teamAura)
+        uint256 timeElapsed = block.timestamp - lastRewardTime;
+        
+        // Calculate IVY reward for this period
+        // ivyReward = timeElapsed * EMISSION_PER_SECOND * emissionFactor * pidMultiplier
+        uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * pidMultiplier) / (10**18 * 10**18);
+        
+        // Check hard cap
+        if (totalMinted + ivyReward > HARD_CAP) {
+            ivyReward = HARD_CAP - totalMinted;
+        }
+        
+        if (ivyReward > 0) {
+            // Update accumulated IVY per share
+            accIvyPerShare += (ivyReward * ACC_IVY_PRECISION) / totalPoolBondPower;
+        }
+        
+        lastRewardTime = block.timestamp;
+        
+        emit PoolUpdated(accIvyPerShare, lastRewardTime, totalPoolBondPower);
+    }
+
+    /**
+     * @dev Sync user's bond power and calculate pending rewards
+     * Must be called when user's bond power changes (deposit/withdraw)
+     */
+    function syncUser(address user) external {
+        _syncUser(user);
+    }
+    
+    function _syncUser(address user) internal {
+        updatePool();
+        
+        UserInfo storage info = userInfo[user];
+        
+        // Get current bond power from IvyBond
+        uint256 newBondPower = 0;
+        if (address(ivyBond) != address(0)) {
+            newBondPower = ivyBond.getBondPower(user);
+        }
+        
+        // Apply boost from GenesisNode
         uint256 totalBoost = 0;
         if (address(genesisNode) != address(0)) {
             totalBoost = genesisNode.getTotalBoost(user);
         }
         
-        // Calculate base reward (simplified: bondPower / 1000 * baseEmission)
-        // In production, this would be based on share of total bond power
-        uint256 baseReward = (bondPower * BASE_DAILY_EMISSION) / (1000 * 10**18);
+        // Effective bond power = bondPower * (1 + boost)
+        uint256 effectiveBondPower = (newBondPower * (BASIS_POINTS + totalBoost)) / BASIS_POINTS;
         
-        // Apply boost multiplier (BASIS_POINTS + boost)
-        uint256 boostedReward = (baseReward * (BASIS_POINTS + totalBoost)) / BASIS_POINTS;
+        // Calculate pending rewards before updating
+        if (info.bondPower > 0) {
+            uint256 pending = (info.bondPower * accIvyPerShare / ACC_IVY_PRECISION) - info.rewardDebt;
+            if (pending > 0) {
+                info.pendingVested += pending;
+            }
+        }
         
-        // Apply emission factor (halving)
-        uint256 finalReward = (boostedReward * emissionFactor) / 10**18;
+        // Update total pool bond power
+        totalPoolBondPower = totalPoolBondPower - info.bondPower + effectiveBondPower;
         
-        return finalReward;
+        // Update user info
+        info.bondPower = effectiveBondPower;
+        info.rewardDebt = effectiveBondPower * accIvyPerShare / ACC_IVY_PRECISION;
+        
+        emit UserSynced(user, effectiveBondPower, info.rewardDebt);
     }
 
     /**
-     * @dev Claim daily mining rewards
+     * @dev Calculate pending IVY rewards for a user (view function)
      * 
-     * Flow:
-     * 1. Calculate user's reward
-     * 2. Mint IVY to user
-     * 3. Distribute referral rewards from Mining Pool
-     * 4. Check and apply halving if needed
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              PENDING IVY CALCULATION                          ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  pending = (userBondPower * accIvyPerShare) - rewardDebt      ║
+     * ║          + pendingVested (from previous syncs)                ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
-    function claimRewards() external nonReentrant {
+    function pendingIvy(address user) public view returns (uint256) {
+        UserInfo storage info = userInfo[user];
+        
+        uint256 _accIvyPerShare = accIvyPerShare;
+        
+        if (block.timestamp > lastRewardTime && totalPoolBondPower > 0) {
+            uint256 timeElapsed = block.timestamp - lastRewardTime;
+            uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * pidMultiplier) / (10**18 * 10**18);
+            
+            if (totalMinted + ivyReward > HARD_CAP) {
+                ivyReward = HARD_CAP - totalMinted;
+            }
+            
+            _accIvyPerShare += (ivyReward * ACC_IVY_PRECISION) / totalPoolBondPower;
+        }
+        
+        uint256 pending = (info.bondPower * _accIvyPerShare / ACC_IVY_PRECISION) - info.rewardDebt;
+        return pending + info.pendingVested;
+    }
+
+    /**
+     * @dev Harvest pending rewards into vesting
+     * Rewards go into 30-day linear vesting, NOT directly to wallet
+     */
+    function harvest() external nonReentrant {
         address user = msg.sender;
+        _syncUser(user);
         
-        require(
-            block.timestamp >= lastClaimTime[user] + CLAIM_COOLDOWN,
-            "Claim cooldown not elapsed"
-        );
+        UserInfo storage info = userInfo[user];
+        uint256 pending = info.pendingVested;
         
-        uint256 reward = calculateDailyReward(user);
-        require(reward > 0, "No rewards to claim");
-        require(totalMinted + reward <= HARD_CAP, "Hard cap reached");
+        require(pending > 0, "No rewards to harvest");
+        require(totalMinted + pending <= HARD_CAP, "Hard cap reached");
         
-        // Update claim time
-        lastClaimTime[user] = block.timestamp;
+        // Start vesting
+        info.totalVested += pending;
+        info.vestingStartTime = block.timestamp;
+        info.pendingVested = 0;
         
-        // Mint reward to user
-        ivyToken.mint(user, reward);
-        totalMinted += reward;
-        totalClaimed[user] += reward;
+        // Mint to this contract (held for vesting)
+        ivyToken.mint(address(this), pending);
+        totalMinted += pending;
         
-        emit RewardsClaimed(user, reward, reward, block.timestamp);
+        emit VestingStarted(user, pending, block.timestamp);
+        emit RewardsHarvested(user, pending);
         
-        // Distribute referral rewards (from Mining Pool, NOT from user's reward)
-        _distributeReferralRewards(user, reward);
+        // Distribute referral rewards
+        _distributeReferralRewards(user, pending);
         
         // Check halving
         _checkHalving();
     }
 
     /**
+     * @dev Claim vested IVY (30-day linear release)
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              30-DAY LINEAR VESTING                            ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  claimable = totalVested * min(timeElapsed, 30 days) / 30days ║
+     * ║            - alreadyClaimed                                   ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function claimVested() external nonReentrant {
+        address user = msg.sender;
+        UserInfo storage info = userInfo[user];
+        
+        require(info.totalVested > 0, "No vested rewards");
+        
+        uint256 timeElapsed = block.timestamp - info.vestingStartTime;
+        uint256 vestedAmount;
+        
+        if (timeElapsed >= VESTING_PERIOD) {
+            // Fully vested
+            vestedAmount = info.totalVested;
+        } else {
+            // Linearly vested
+            vestedAmount = (info.totalVested * timeElapsed) / VESTING_PERIOD;
+        }
+        
+        uint256 claimable = vestedAmount - info.totalClaimed;
+        require(claimable > 0, "No claimable rewards");
+        
+        info.totalClaimed += claimable;
+        
+        // Transfer from contract to user
+        ivyToken.transfer(user, claimable);
+        
+        emit VestingClaimed(user, claimable);
+    }
+
+    /**
+     * @dev Instant cash out - get IVY immediately but 50% is burned
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              INSTANT CASH (50% BURN)                          ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  User receives: 50% of remaining vested amount               ║
+     * ║  Burned: 50% of remaining vested amount                       ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function instantCashOut() external nonReentrant {
+        address user = msg.sender;
+        UserInfo storage info = userInfo[user];
+        
+        uint256 remaining = info.totalVested - info.totalClaimed;
+        require(remaining > 0, "No vested rewards to cash out");
+        
+        uint256 penalty = (remaining * INSTANT_CASH_PENALTY) / BASIS_POINTS;
+        uint256 received = remaining - penalty;
+        
+        // Clear vesting
+        info.totalClaimed = info.totalVested;
+        
+        // Transfer to user
+        ivyToken.transfer(user, received);
+        
+        // Burn penalty (transfer to dead address)
+        ivyToken.transfer(address(0xdead), penalty);
+        
+        emit InstantCashOut(user, received, penalty);
+    }
+
+    /**
      * @dev Distribute referral rewards based on mining output
-     * 
-     * ┌─────────────────────────────────────────────────────────┐
-     * │              REFERRAL REWARD DISTRIBUTION               │
-     * ├─────────────────────────────────────────────────────────┤
-     * │  When User claims 1000 IVY:                             │
-     * │  ├── L1 Referrer gets: 100 IVY (10%) - NEW MINT        │
-     * │  ├── L2 Referrer gets: 50 IVY (5%) - NEW MINT          │
-     * │  └── L3+ First qualified: 20 IVY (2%) - NEW MINT       │
-     * │                                                         │
-     * │  IMPORTANT: These are ADDITIONAL mints from Mining Pool │
-     * │             User still receives full 1000 IVY           │
-     * └─────────────────────────────────────────────────────────┘
-     * 
-     * @param user User who triggered the reward
-     * @param miningOutput Amount of IVY the user mined
      */
     function _distributeReferralRewards(address user, uint256 miningOutput) internal {
         if (address(genesisNode) == address(0)) return;
@@ -242,12 +408,11 @@ contract IvyCore is Ownable, ReentrancyGuard {
             emit ReferralRewardPaid(l2, user, l2Reward, 2);
         }
         
-        // L3+ Infinite Differential (2%) - First qualified upline with NFT
+        // L3+ Infinite Differential (2%)
         address cursor = genesisNode.getReferrer(l2);
         uint256 depth = 0;
         
         while (cursor != address(0) && depth < MAX_REFERRAL_DEPTH) {
-            // Check if this upline holds a Genesis Node
             if (genesisNode.balanceOf(cursor) > 0) {
                 uint256 infiniteReward = (miningOutput * INFINITE_RATE) / BASIS_POINTS;
                 if (infiniteReward > 0 && totalMinted + infiniteReward <= HARD_CAP) {
@@ -256,7 +421,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
                     referralRewardsEarned[cursor] += infiniteReward;
                     emit ReferralRewardPaid(cursor, user, infiniteReward, 3);
                 }
-                break;  // Only first qualified upline gets infinite reward
+                break;
             }
             cursor = genesisNode.getReferrer(cursor);
             depth++;
@@ -277,59 +442,97 @@ contract IvyCore is Ownable, ReentrancyGuard {
     // ============ View Functions ============
 
     /**
-     * @dev Check if user can claim rewards
-     * @param user User address
-     * @return canClaim True if can claim
-     * @return timeRemaining Seconds until next claim (0 if can claim)
+     * @dev Get current daily emission rate (for dashboard)
      */
-    function canClaim(address user) external view returns (bool, uint256) {
-        uint256 nextClaimTime = lastClaimTime[user] + CLAIM_COOLDOWN;
-        if (block.timestamp >= nextClaimTime) {
-            return (true, 0);
-        }
-        return (false, nextClaimTime - block.timestamp);
+    function currentDailyEmission() external view returns (uint256) {
+        return (BASE_DAILY_EMISSION * emissionFactor * pidMultiplier) / (10**18 * 10**18);
     }
 
     /**
      * @dev Get user's mining stats
-     * @param user User address
      */
     function getUserMiningStats(address user) external view returns (
-        uint256 pendingReward,
-        uint256 totalClaimedAmount,
-        uint256 referralEarnings,
-        uint256 lastClaim,
-        uint256 bondPower,
-        uint256 totalBoost
+        uint256 _pendingReward,
+        uint256 _totalClaimed,
+        uint256 _referralEarnings,
+        uint256 _vestedAmount,
+        uint256 _claimableVested,
+        uint256 _bondPower
     ) {
-        pendingReward = calculateDailyReward(user);
-        totalClaimedAmount = totalClaimed[user];
-        referralEarnings = referralRewardsEarned[user];
-        lastClaim = lastClaimTime[user];
+        UserInfo storage info = userInfo[user];
         
-        if (address(ivyBond) != address(0)) {
-            bondPower = ivyBond.getBondPower(user);
+        _pendingReward = pendingIvy(user);
+        _totalClaimed = info.totalClaimed;
+        _referralEarnings = referralRewardsEarned[user];
+        _vestedAmount = info.totalVested;
+        
+        // Calculate claimable vested
+        if (info.totalVested > 0 && info.vestingStartTime > 0) {
+            uint256 timeElapsed = block.timestamp - info.vestingStartTime;
+            uint256 vestedSoFar;
+            if (timeElapsed >= VESTING_PERIOD) {
+                vestedSoFar = info.totalVested;
+            } else {
+                vestedSoFar = (info.totalVested * timeElapsed) / VESTING_PERIOD;
+            }
+            _claimableVested = vestedSoFar > info.totalClaimed ? vestedSoFar - info.totalClaimed : 0;
         }
         
-        if (address(genesisNode) != address(0)) {
-            totalBoost = genesisNode.getTotalBoost(user);
-        }
+        _bondPower = info.bondPower;
     }
 
     /**
-     * @dev Get protocol stats
+     * @dev Get protocol stats (for dashboard)
      */
     function getProtocolStats() external view returns (
         uint256 _totalMinted,
         uint256 _hardCap,
         uint256 _emissionFactor,
-        uint256 _nextHalvingAt
+        uint256 _pidMultiplier,
+        uint256 _totalPoolBondPower,
+        uint256 _emissionPerSecond
     ) {
         return (
             totalMinted,
             HARD_CAP,
             emissionFactor,
-            lastHalvingMinted + HALVING_THRESHOLD
+            pidMultiplier,
+            totalPoolBondPower,
+            EMISSION_PER_SECOND
         );
+    }
+
+    /**
+     * @dev Get vesting info for user
+     */
+    function getVestingInfo(address user) external view returns (
+        uint256 totalVested,
+        uint256 totalClaimed,
+        uint256 claimable,
+        uint256 vestingStartTime,
+        uint256 vestingEndTime,
+        uint256 percentVested
+    ) {
+        UserInfo storage info = userInfo[user];
+        
+        totalVested = info.totalVested;
+        totalClaimed = info.totalClaimed;
+        vestingStartTime = info.vestingStartTime;
+        vestingEndTime = info.vestingStartTime + VESTING_PERIOD;
+        
+        if (info.totalVested > 0 && info.vestingStartTime > 0) {
+            uint256 timeElapsed = block.timestamp - info.vestingStartTime;
+            uint256 vestedSoFar;
+            
+            if (timeElapsed >= VESTING_PERIOD) {
+                vestedSoFar = info.totalVested;
+                percentVested = 10000;  // 100%
+            } else {
+                vestedSoFar = (info.totalVested * timeElapsed) / VESTING_PERIOD;
+                percentVested = (timeElapsed * 10000) / VESTING_PERIOD;
+            }
+            
+            claimable = vestedSoFar > info.totalClaimed ? vestedSoFar - info.totalClaimed : 0;
+        }
     }
 }
