@@ -26,7 +26,11 @@ export function IdentityPanel() {
     abi: abis.GenesisNode,
     functionName: 'getUserInfo',
     args: [address],
-    query: { enabled: !!address && isConnected }
+    query: { 
+      enabled: !!address && isConnected,
+      refetchInterval: 10000, // Refresh every 10 seconds to sync with ReferralCenter
+      staleTime: 0,
+    }
   });
 
   // Read USDT balance

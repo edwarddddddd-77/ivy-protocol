@@ -6,6 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+/// @notice Interface for GenesisNode referral binding
+interface IGenesisNodeReferral {
+    function bindReferrerFromBond(address user, address referrer) external;
+    function referrers(address user) external view returns (address);
+}
+
 /**
  * @title IvyBond
  * @dev Investment Layer of Ivy Protocol - Handles deposits with 50/40/10 fund split
@@ -48,6 +54,9 @@ contract IvyBond is Ownable, ReentrancyGuard {
     /// @notice IvyCore contract address (for reward calculations)
     address public ivyCore;
     
+    /// @notice GenesisNode contract address (for referral binding)
+    address public genesisNode;
+    
     /// @notice User deposit info
     struct BondInfo {
         uint256 totalDeposited;      // Total USDT deposited
@@ -77,6 +86,8 @@ contract IvyBond is Ownable, ReentrancyGuard {
         address reservePool
     );
     event IvyCoreSet(address indexed ivyCore);
+    event GenesisNodeSet(address indexed genesisNode);
+    event ReferrerBound(address indexed user, address indexed referrer);
 
     // ============ Constructor ============
     
@@ -118,6 +129,15 @@ contract IvyBond is Ownable, ReentrancyGuard {
         ivyCore = _ivyCore;
         emit IvyCoreSet(_ivyCore);
     }
+    
+    /**
+     * @dev Set the GenesisNode contract address (for referral binding)
+     */
+    function setGenesisNode(address _genesisNode) external onlyOwner {
+        require(_genesisNode != address(0), "Invalid GenesisNode");
+        genesisNode = _genesisNode;
+        emit GenesisNodeSet(_genesisNode);
+    }
 
     /**
      * @dev Update distribution wallet addresses
@@ -153,12 +173,18 @@ contract IvyBond is Ownable, ReentrancyGuard {
      * └─────────────────────────────────────────────────────────┘
      * 
      * @param amount Amount of USDT to deposit
+     * @param referrer Address of the referrer (can be address(0) for no referrer)
      */
-    function deposit(uint256 amount) external nonReentrant {
+    function deposit(uint256 amount, address referrer) external nonReentrant {
         require(address(paymentToken) != address(0), "Payment token not set");
         require(amount >= MIN_DEPOSIT, "Below minimum deposit");
         
         address user = msg.sender;
+        
+        // Bind referrer if not already bound (CRITICAL: Must happen before any rewards)
+        if (genesisNode != address(0) && referrer != address(0) && referrer != user) {
+            IGenesisNodeReferral(genesisNode).bindReferrerFromBond(user, referrer);
+        }
         
         // Transfer USDT from user
         paymentToken.safeTransferFrom(user, address(this), amount);

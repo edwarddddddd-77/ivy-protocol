@@ -8,12 +8,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Wallet, TrendingUp, Clock, Coins, ArrowRight, Zap, Sparkles } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useReferral } from '@/contexts/ReferralContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
 
 export function TreasuryPanel() {
   const { address, isConnected } = useAccount();
   const { t } = useLanguage();
+  const { referrer } = useReferral();
   const [depositAmount, setDepositAmount] = useState('');
   const [isApproving, setIsApproving] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
@@ -144,11 +146,15 @@ export function TreasuryPanel() {
     
     setIsDepositing(true);
     try {
+      // Use referrer from context (stored from URL ?ref= parameter)
+      const referrerAddress = referrer || '0x0000000000000000000000000000000000000000';
+      console.log('[TreasuryPanel] Depositing with referrer:', referrerAddress);
+      
       deposit({
         address: addresses.IvyBond as `0x${string}`,
         abi: abis.IvyBond,
         functionName: 'deposit',
-        args: [parseEther(depositAmount)],
+        args: [parseEther(depositAmount), referrerAddress as `0x${string}`],
       });
       toast.info('Deposit transaction submitted...');
     } catch (error) {

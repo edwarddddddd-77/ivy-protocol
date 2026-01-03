@@ -139,6 +139,35 @@ contract GenesisNode is ERC721Enumerable, Ownable, ReentrancyGuard {
         directReferralCount[referrer]++;
         emit ReferrerBound(user, referrer);
     }
+    
+    /// @notice IvyBond contract address (authorized to bind referrers)
+    address public ivyBond;
+    
+    /**
+     * @dev Set the IvyBond contract address (authorized to bind referrers on deposit)
+     * @param _ivyBond Address of the IvyBond contract
+     */
+    function setIvyBond(address _ivyBond) external onlyOwner {
+        require(_ivyBond != address(0), "Invalid IvyBond address");
+        ivyBond = _ivyBond;
+    }
+    
+    /**
+     * @dev Bind referrer from IvyBond deposit (called by IvyBond contract)
+     * This allows users who skip NFT purchase to still have referral relationships
+     * @param user User address
+     * @param referrer Referrer address
+     */
+    function bindReferrerFromBond(address user, address referrer) external {
+        require(msg.sender == ivyBond, "Only IvyBond can call");
+        require(referrers[user] == address(0), "Referrer already set");
+        require(referrer != user, "Cannot self-refer");
+        require(referrer != address(0), "Invalid referrer");
+        
+        referrers[user] = referrer;
+        directReferralCount[referrer]++;
+        emit ReferrerBound(user, referrer);
+    }
 
     // ============ Core Functions ============
 

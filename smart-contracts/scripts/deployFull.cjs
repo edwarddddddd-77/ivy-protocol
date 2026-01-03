@@ -78,6 +78,14 @@ async function main() {
   await genesisNode.setPaymentToken(mockUSDTAddr);
   console.log("GenesisNode payment token set to MockUSDT");
   
+  // 7e. Set GenesisNode IvyBond reference (for deposit referral binding)
+  await genesisNode.setIvyBond(ivyBondAddr);
+  console.log("GenesisNode IvyBond reference set");
+  
+  // 7f. Set IvyBond GenesisNode reference (for referral binding on deposit)
+  await ivyBond.setGenesisNode(genesisNodeAddr);
+  console.log("IvyBond GenesisNode reference set");
+  
   // 7c. Set IvyBond references
   await ivyBond.setPaymentToken(mockUSDTAddr);
   console.log("IvyBond payment token set to MockUSDT");
