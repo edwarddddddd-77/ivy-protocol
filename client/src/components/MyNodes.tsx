@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
-import GenesisNodeABI from '@/contracts/abis.json';
+import abis from '@/contracts/abis.json';
 
 // API endpoint for NFT metadata
 const NFT_API_BASE = '/api/nft';
@@ -16,17 +17,21 @@ const FALLBACK_IMAGE = 'https://placehold.co/600x600/2a0a3b/00ff9d/png?text=Gene
 
 export function MyNodes() {
   const { address, isConnected } = useAccount();
+  const { t } = useLanguage();
   const [nftImages, setNftImages] = useState<Record<number, string>>({});
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
-  // Data reading logic - KEEP THIS FIXED VERSION
+  // 严格从 addresses.json 读取最新的 GenesisNode 合约地址
+  const genesisNodeAddress = addresses.GenesisNode as `0x${string}`;
+
+  // Data reading logic - 使用最新合约地址
   const { data: balance, isLoading, refetch } = useReadContract({
-    address: addresses.GenesisNode as `0x${string}`,
-    abi: GenesisNodeABI.GenesisNode,
+    address: genesisNodeAddress,
+    abi: abis.GenesisNode,
     functionName: 'balanceOf',
     args: [address],
     query: { 
-      enabled: !!address && isConnected,
+      enabled: !!address && isConnected && genesisNodeAddress !== '0x0000000000000000000000000000000000000000',
       staleTime: 0,
       gcTime: 0,
       refetchInterval: 5000,
@@ -73,9 +78,9 @@ export function MyNodes() {
     return (
       <GlassCard className="p-8 text-center border-dashed border-white/20">
         <div className="text-6xl mb-4 opacity-20">🔗</div>
-        <h3 className="text-xl font-bold text-white mb-2">WALLET NOT CONNECTED</h3>
+        <h3 className="text-xl font-bold text-white mb-2">{t('myNodes.wallet_not_connected')}</h3>
         <p className="text-gray-400">
-          Connect your wallet to view your Genesis Nodes.
+          {t('myNodes.connect_to_view')}
         </p>
       </GlassCard>
     );
@@ -99,15 +104,18 @@ export function MyNodes() {
     return (
       <GlassCard className="p-8 text-center border-dashed border-white/20">
         <div className="text-6xl mb-4 opacity-20">∅</div>
-        <h3 className="text-xl font-bold text-white mb-2">NO NODES DETECTED</h3>
+        <h3 className="text-xl font-bold text-white mb-2">{t('myNodes.no_nodes')}</h3>
         <p className="text-gray-400 mb-4">
-          Initialize a Genesis Node to begin earning yield.
+          {t('myNodes.no_nodes_desc')}
         </p>
+        <div className="text-xs text-gray-500 font-mono mb-4">
+          {t('myNodes.contract')}: {genesisNodeAddress.slice(0, 10)}...{genesisNodeAddress.slice(-8)}
+        </div>
         <button 
           onClick={() => refetch()}
           className="px-4 py-2 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors text-sm"
         >
-          Refresh
+          {t('myNodes.refresh')}
         </button>
       </GlassCard>
     );
@@ -117,7 +125,7 @@ export function MyNodes() {
   return (
     <div className="space-y-6">
       <h3 className="text-xl font-bold text-white flex items-center gap-2">
-        <span className="text-primary">◈</span> MY NODES ({count})
+        <span className="text-primary">◈</span> {t('myNodes.title')} ({count})
       </h3>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -141,17 +149,17 @@ export function MyNodes() {
                   style={{ display: 'block' }}
                 />
                 <div className="absolute top-2 right-2 bg-black/80 text-primary text-xs px-2 py-1 rounded font-mono border border-primary/20">
-                  ACTIVE
+                  {t('myNodes.active')}
                 </div>
                 <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-mono border border-white/20">
                   #{id}
                 </div>
               </div>
               <div className="p-4">
-                <h4 className="font-bold text-white mb-1">GENESIS NODE #{id}</h4>
+                <h4 className="font-bold text-white mb-1">{t('myNodes.genesis_node')} #{id}</h4>
                 <div className="flex justify-between text-xs text-gray-400 font-mono">
-                  <span>BOOST: 1.1x</span>
-                  <span>TIER: ALPHA</span>
+                  <span>{t('myNodes.boost')}: 1.1x</span>
+                  <span>{t('myNodes.tier')}: ALPHA</span>
                 </div>
               </div>
             </GlassCard>

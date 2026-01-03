@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { FaucetModal } from '@/components/FaucetModal';
-import addresses from '@/contracts/addresses.json';
 
 interface NavbarProps {
   currentPage?: 'home' | 'nodes' | 'yield';
@@ -17,9 +16,6 @@ export function Navbar({ currentPage }: NavbarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
   const { language, setLanguage, t } = useLanguage();
-
-  // Check if we're on testnet (MockUSDT deployed)
-  const isTestnet = addresses.MockUSDT !== '0x0000000000000000000000000000000000000000';
 
   const navItems = [
     { key: 'protocol', label: t('nav.protocol'), path: '/', page: 'home' as const },
@@ -109,18 +105,16 @@ export function Navbar({ currentPage }: NavbarProps) {
               </button>
             </div>
 
-            {/* Faucet Button (Testnet Only) */}
-            {isTestnet && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/20 font-mono text-xs gap-2"
-                onClick={() => setIsFaucetOpen(true)}
-              >
-                <Droplets className="w-3 h-3" />
-                {t('nav.faucet')}
-              </Button>
-            )}
+            {/* Faucet Button - ALWAYS VISIBLE (硬编码强制显示) */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-yellow-500 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/30 font-mono text-xs gap-2 animate-pulse"
+              onClick={() => setIsFaucetOpen(true)}
+            >
+              <Droplets className="w-3 h-3" />
+              {t('nav.faucet')}
+            </Button>
 
             {/* Connect Wallet */}
             <ConnectButton.Custom>
@@ -194,17 +188,15 @@ export function Navbar({ currentPage }: NavbarProps) {
 
           {/* Mobile Menu Toggle */}
           <div className="md:hidden flex items-center gap-3">
-            {/* Mobile Faucet */}
-            {isTestnet && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-yellow-400"
-                onClick={() => setIsFaucetOpen(true)}
-              >
-                <Droplets className="w-5 h-5" />
-              </Button>
-            )}
+            {/* Mobile Faucet - ALWAYS VISIBLE */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-yellow-400 animate-pulse"
+              onClick={() => setIsFaucetOpen(true)}
+            >
+              <Droplets className="w-5 h-5" />
+            </Button>
             
             <Button 
               variant="ghost" 
@@ -241,6 +233,19 @@ export function Navbar({ currentPage }: NavbarProps) {
                 {item.label}
               </button>
             ))}
+
+            {/* Mobile Faucet Button */}
+            <Button
+              variant="outline"
+              className="border-yellow-500 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/30 font-mono text-sm gap-2"
+              onClick={() => {
+                setIsFaucetOpen(true);
+                setIsMobileMenuOpen(false);
+              }}
+            >
+              <Droplets className="w-4 h-4" />
+              {t('nav.faucet')}
+            </Button>
             
             {/* Mobile Language Switcher */}
             <div className="flex items-center gap-2 mt-4">
