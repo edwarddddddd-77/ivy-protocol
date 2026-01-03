@@ -4,9 +4,8 @@ import { parseEther, formatEther } from 'viem';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { Wallet, TrendingUp, Clock, Coins, ArrowRight, Zap, Sparkles, PieChart, Shield, Landmark } from 'lucide-react';
+import { Wallet, TrendingUp, Clock, Coins, Zap, Sparkles, Shield, Landmark, FileText, RefreshCw } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useReferral } from '@/contexts/ReferralContext';
 import addresses from '@/contracts/addresses.json';
@@ -17,16 +16,29 @@ export function TreasuryPanel() {
   const { t } = useLanguage();
   const { referrer } = useReferral();
   const [depositAmount, setDepositAmount] = useState('');
+  const [compoundAmount, setCompoundAmount] = useState('');
+  const [selectedBondId, setSelectedBondId] = useState<number | null>(null);
   const [isApproving, setIsApproving] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
+  const [isCompounding, setIsCompounding] = useState(false);
+  const [showCompoundModal, setShowCompoundModal] = useState(false);
 
-  // Read user's fund allocation (new function for whitepaper compliance)
-  const { data: fundAllocation, isLoading: isLoadingAllocation, refetch: refetchAllocation } = useReadContract({
+  // Read user's fund allocation (whitepaper compliant)
+  const { data: fundAllocation, refetch: refetchAllocation } = useReadContract({
     address: addresses.IvyBond as `0x${string}`,
     abi: abis.IvyBond,
     functionName: 'getFundAllocation',
     args: [address],
-    query: { enabled: !!address && isConnected && addresses.IvyBond !== '0x0000000000000000000000000000000000000000' }
+    query: { enabled: !!address && isConnected }
+  });
+
+  // Read user's Bond NFT IDs
+  const { data: bondIds, refetch: refetchBondIds } = useReadContract({
+    address: addresses.IvyBond as `0x${string}`,
+    abi: abis.IvyBond,
+    functionName: 'getUserBondIds',
+    args: [address],
+    query: { enabled: !!address && isConnected }
   });
 
   // Read mining stats from IvyCore
@@ -44,7 +56,7 @@ export function TreasuryPanel() {
     abi: abis.MockUSDT,
     functionName: 'balanceOf',
     args: [address],
-    query: { enabled: !!address && isConnected && addresses.MockUSDT !== '0x0000000000000000000000000000000000000000' }
+    query: { enabled: !!address && isConnected }
   });
 
   // Read USDT allowance for IvyBond
@@ -53,7 +65,7 @@ export function TreasuryPanel() {
     abi: abis.MockUSDT,
     functionName: 'allowance',
     args: [address, addresses.IvyBond],
-    query: { enabled: !!address && isConnected && addresses.MockUSDT !== '0x0000000000000000000000000000000000000000' }
+    query: { enabled: !!address && isConnected }
   });
 
   // Read user's boost from GenesisNode
@@ -77,6 +89,7 @@ export function TreasuryPanel() {
   // Write contracts
   const { writeContract: approveUSDT, data: approveHash } = useWriteContract();
   const { writeContract: deposit, data: depositHash } = useWriteContract();
+  const { writeContract: compound, data: compoundHash } = useWriteContract();
 
   // Wait for transactions
   const { isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
@@ -87,28 +100,31 @@ export function TreasuryPanel() {
     hash: depositHash,
   });
 
+  const { isLoading: isCompoundLoading, isSuccess: isCompoundSuccess } = useWaitForTransactionReceipt({
+    hash: compoundHash,
+  });
+
   // Parse fund allocation data (whitepaper compliant)
   const totalDeposited = fundAllocation ? Number((fundAllocation as any)[0]) / 1e18 : 0;
   const miningPrincipal = fundAllocation ? Number((fundAllocation as any)[1]) / 1e18 : 0;  // 50%
   const rwaAssets = fundAllocation ? Number((fundAllocation as any)[2]) / 1e18 : 0;        // 40%
   const reserveAmount = fundAllocation ? Number((fundAllocation as any)[3]) / 1e18 : 0;    // 10%
-  const baseMiningPower = fundAllocation ? Number((fundAllocation as any)[4]) / 1e18 : 0;  // Bond Power (50%)
+  const baseMiningPower = fundAllocation ? Number((fundAllocation as any)[4]) / 1e18 : 0;  // Bond Power
 
   const pendingReward = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
   const totalClaimed = miningStats ? Number((miningStats as any)[1]) / 1e18 : 0;
   const referralEarnings = miningStats ? Number((miningStats as any)[2]) / 1e18 : 0;
   
-  // Boost percentages (stored in basis points, 1000 = 10%)
+  // Boost percentages
   const userBoostBps = totalBoost ? Number(totalBoost as any) : 0;
-  const userBoostPercent = userBoostBps / 100; // Convert to percentage
+  const userBoostPercent = userBoostBps / 100;
   
-  // Detailed boost breakdown from userInfo
   const selfBoostBps = userInfo ? Number((userInfo as any)[3]) : 0;
   const teamAuraBps = userInfo ? Number((userInfo as any)[4]) : 0;
   const selfBoostPercent = selfBoostBps / 100;
   const teamAuraPercent = teamAuraBps / 100;
 
-  // Calculate Effective Mining Power = Base Mining Power (50%) × (1 + TotalBoost%)
+  // Calculate Effective Mining Power = Base Mining Power × (1 + TotalBoost%)
   const effectiveMiningPower = baseMiningPower * (1 + userBoostPercent / 100);
   const hasBoost = userBoostPercent > 0;
 
@@ -117,12 +133,12 @@ export function TreasuryPanel() {
   const hasApproval = usdtAllowance ? BigInt(usdtAllowance as any) >= depositAmountBigInt : false;
   const hasEnoughBalance = usdtBalanceNum >= Number(depositAmount || 0);
 
+  // Bond NFT count
+  const bondCount = bondIds ? (bondIds as any[]).length : 0;
+
   // Handle approve
   const handleApprove = async () => {
-    if (!address || !depositAmount || addresses.MockUSDT === '0x0000000000000000000000000000000000000000') {
-      toast.error('Invalid input or MockUSDT not deployed');
-      return;
-    }
+    if (!address || !depositAmount) return;
     
     setIsApproving(true);
     try {
@@ -139,16 +155,12 @@ export function TreasuryPanel() {
     }
   };
 
-  // Handle deposit
+  // Handle deposit (mints Bond NFT)
   const handleDeposit = async () => {
-    if (!address || !depositAmount || addresses.IvyBond === '0x0000000000000000000000000000000000000000') {
-      toast.error('Invalid input or IvyBond not deployed');
-      return;
-    }
+    if (!address || !depositAmount) return;
     
     setIsDepositing(true);
     try {
-      // Use referrer from context (stored from URL ?ref= parameter)
       const referrerAddress = referrer || '0x0000000000000000000000000000000000000000';
       console.log('[TreasuryPanel] Depositing with referrer:', referrerAddress);
       
@@ -158,10 +170,29 @@ export function TreasuryPanel() {
         functionName: 'deposit',
         args: [parseEther(depositAmount), referrerAddress as `0x${string}`],
       });
-      toast.info('Deposit transaction submitted...');
+      toast.info('Minting Bond NFT...');
     } catch (error) {
       toast.error('Deposit failed');
       setIsDepositing(false);
+    }
+  };
+
+  // Handle compound
+  const handleCompound = async () => {
+    if (!address || !compoundAmount || selectedBondId === null) return;
+    
+    setIsCompounding(true);
+    try {
+      compound({
+        address: addresses.IvyBond as `0x${string}`,
+        abi: abis.IvyBond,
+        functionName: 'compound',
+        args: [BigInt(selectedBondId), parseEther(compoundAmount)],
+      });
+      toast.info('Compounding into Bond NFT...');
+    } catch (error) {
+      toast.error('Compound failed');
+      setIsCompounding(false);
     }
   };
 
@@ -177,13 +208,26 @@ export function TreasuryPanel() {
   useEffect(() => {
     if (isDepositSuccess && isDepositing) {
       setIsDepositing(false);
-      toast.success('Deposit Successful!');
+      toast.success('Bond NFT Minted! 🎉');
       setDepositAmount('');
+      refetchAllocation();
+      refetchBondIds();
+      refetchMining();
+      refetchUsdtBalance();
+    }
+  }, [isDepositSuccess, isDepositing]);
+
+  useEffect(() => {
+    if (isCompoundSuccess && isCompounding) {
+      setIsCompounding(false);
+      toast.success('Compound Successful! +10% Bonus Power');
+      setCompoundAmount('');
+      setShowCompoundModal(false);
       refetchAllocation();
       refetchMining();
       refetchUsdtBalance();
     }
-  }, [isDepositSuccess, isDepositing, refetchAllocation, refetchMining, refetchUsdtBalance]);
+  }, [isCompoundSuccess, isCompounding]);
 
   // Quick amount buttons
   const quickAmounts = [100, 500, 1000, 5000];
@@ -204,18 +248,25 @@ export function TreasuryPanel() {
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2 bg-blue-500/20 rounded-lg">
-          <Wallet className="w-6 h-6 text-blue-400" />
+          <FileText className="w-6 h-6 text-blue-400" />
         </div>
         <div>
-          <h3 className="text-lg font-bold text-white">{t('treasury.title')}</h3>
-          <p className="text-xs text-gray-400">{t('treasury.subtitle')}</p>
+          <h3 className="text-lg font-bold text-white">Bond NFT Treasury</h3>
+          <p className="text-xs text-gray-400">ERC721 Mining Bonds (Whitepaper V2.5)</p>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* FUND ALLOCATION BREAKDOWN - Whitepaper Compliant (P3, P6)      */}
-      {/* ═══════════════════════════════════════════════════════════════ */}
-      
+      {/* Bond NFT Count */}
+      <div className="mb-4 p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-purple-400" />
+            <span className="text-sm text-gray-300">My Bond NFTs</span>
+          </div>
+          <div className="text-xl font-bold text-purple-400 font-mono">{bondCount}</div>
+        </div>
+      </div>
+
       {/* Total Deposit */}
       <div className="mb-4 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-blue-600/10 border border-blue-500/20">
         <div className="flex items-center gap-2 mb-2">
@@ -236,10 +287,10 @@ export function TreasuryPanel() {
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Zap className="w-5 h-5 text-primary" />
-                <span className="text-sm font-bold text-white">Effective Mining Principal (矿机本金 50%)</span>
+                <span className="text-sm font-bold text-white">Mining Principal (矿机本金 50%)</span>
               </div>
               <div className="px-2 py-0.5 bg-primary/30 rounded text-[10px] text-primary font-bold">
-                MINING IVY
+                TRANCHE B
               </div>
             </div>
             <div className="text-2xl font-bold text-primary font-mono">
@@ -256,7 +307,7 @@ export function TreasuryPanel() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Landmark className="w-4 h-4 text-purple-400" />
-                <span className="text-sm text-gray-300">RWA Assets (国债资产 40%)</span>
+                <span className="text-sm text-gray-300">RWA Assets (国债 40%)</span>
               </div>
               <div className="text-lg font-bold text-purple-400 font-mono">
                 {rwaAssets.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -265,7 +316,7 @@ export function TreasuryPanel() {
             </div>
           </div>
 
-          {/* Reserve (10%) */}
+          {/* Reserve (10% - Tranche C) */}
           <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -287,7 +338,7 @@ export function TreasuryPanel() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Sparkles className={`w-4 h-4 ${hasBoost ? 'text-primary' : 'text-gray-400'}`} />
-              <span className="text-sm text-gray-400">Effective Mining Power (有效挖矿算力)</span>
+              <span className="text-sm text-gray-400">Effective Mining Power</span>
             </div>
             {hasBoost && (
               <div className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 rounded-full">
@@ -304,10 +355,10 @@ export function TreasuryPanel() {
             <span className="text-lg text-gray-400 ml-2">Power</span>
           </div>
           
-          {/* Boost Calculation Formula */}
+          {/* Boost Breakdown */}
           <div className="mt-3 pt-3 border-t border-white/10">
             <div className="text-[10px] text-gray-500 font-mono">
-              Formula: {miningPrincipal.toLocaleString()} (50%) × (1 + {userBoostPercent}%) = {effectiveMiningPower.toLocaleString()}
+              Formula: {baseMiningPower.toLocaleString()} (Bond Power) × (1 + {userBoostPercent}%) = {effectiveMiningPower.toLocaleString()}
             </div>
             {hasBoost && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -324,13 +375,6 @@ export function TreasuryPanel() {
               </div>
             )}
           </div>
-          
-          {/* No Boost Message */}
-          {!hasBoost && totalDeposited > 0 && (
-            <div className="mt-2 text-[10px] text-gray-500">
-              💡 Purchase a Genesis Node to get +10% mining boost!
-            </div>
-          )}
         </div>
       )}
 
@@ -339,7 +383,7 @@ export function TreasuryPanel() {
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp className="w-3 h-3 text-primary" />
-            <span className="text-xs text-gray-400">{t('treasury.est_daily')}</span>
+            <span className="text-xs text-gray-400">Pending Yield</span>
           </div>
           <div className="text-lg font-bold text-primary font-mono">
             {pendingReward.toFixed(2)} IVY
@@ -349,7 +393,7 @@ export function TreasuryPanel() {
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
           <div className="flex items-center gap-2 mb-1">
             <Clock className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-400">{t('treasury.total_claimed')}</span>
+            <span className="text-xs text-gray-400">Total Claimed</span>
           </div>
           <div className="text-lg font-bold text-white font-mono">
             {totalClaimed.toFixed(2)} IVY
@@ -357,22 +401,38 @@ export function TreasuryPanel() {
         </div>
       </div>
 
-      {/* Referral Earnings */}
-      <div className="mb-6 p-3 rounded-lg bg-black/40 border border-white/10">
-        <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">{t('treasury.referral_earnings')}</span>
-          <span className="text-lg font-bold text-purple-400 font-mono">
-            {referralEarnings.toFixed(2)} IVY
-          </span>
+      {/* Compound Section (if user has bonds) */}
+      {bondCount > 0 && (
+        <div className="mb-6 p-3 rounded-lg bg-gradient-to-r from-orange-500/10 to-yellow-500/10 border border-orange-500/20">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-orange-400" />
+              <span className="text-sm font-bold text-white">Compound (复投)</span>
+            </div>
+            <div className="px-2 py-0.5 bg-orange-500/20 rounded text-[10px] text-orange-400 font-bold">
+              +10% BONUS
+            </div>
+          </div>
+          <div className="text-[10px] text-gray-400 mb-2">
+            Whitepaper: "复投部分的资金给予 10% 的算力加成"
+          </div>
+          <Button 
+            variant="outline"
+            size="sm"
+            className="w-full border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+            onClick={() => setShowCompoundModal(true)}
+          >
+            Compound into Bond NFT
+          </Button>
         </div>
-      </div>
+      )}
 
       {/* Deposit Section */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-400">{t('treasury.deposit_usdt')}</span>
+          <span className="text-sm text-gray-400">Mint New Bond NFT</span>
           <span className="text-xs text-gray-500 font-mono">
-            {t('treasury.balance')}: {usdtBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+            Balance: {usdtBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
           </span>
         </div>
 
@@ -405,10 +465,10 @@ export function TreasuryPanel() {
           </span>
         </div>
 
-        {/* Preview Fund Split after deposit */}
+        {/* Preview Fund Split */}
         {depositAmount && Number(depositAmount) >= 10 && (
           <div className="p-3 rounded bg-primary/5 border border-primary/10 space-y-2">
-            <div className="text-[10px] text-gray-400 font-bold">After deposit, your funds will be split:</div>
+            <div className="text-[10px] text-gray-400 font-bold">Your deposit will be split:</div>
             <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
               <div className="text-center p-2 bg-primary/10 rounded">
                 <div className="text-primary font-bold">{(Number(depositAmount) * 0.5).toLocaleString()}</div>
@@ -426,32 +486,23 @@ export function TreasuryPanel() {
           </div>
         )}
 
-        {/* Validation Messages */}
+        {/* Validation */}
         {depositAmount && Number(depositAmount) < 10 && (
-          <div className="text-xs text-yellow-400">
-            Minimum deposit: 10 USDT
-          </div>
+          <div className="text-xs text-yellow-400">Minimum deposit: 10 USDT</div>
         )}
         
         {depositAmount && !hasEnoughBalance && (
-          <div className="text-xs text-red-400">
-            Insufficient balance. Use faucet.
-          </div>
+          <div className="text-xs text-red-400">Insufficient balance. Use faucet.</div>
         )}
 
         {/* Action Buttons */}
-        {addresses.IvyBond === '0x0000000000000000000000000000000000000000' ? (
-          <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-center">
-            <div className="text-yellow-400 text-sm">{t('treasury.not_deployed')}</div>
-            <div className="text-xs text-gray-500">{t('treasury.deploy_first')}</div>
-          </div>
-        ) : !hasApproval && depositAmount && Number(depositAmount) >= 10 ? (
+        {!hasApproval && depositAmount && Number(depositAmount) >= 10 ? (
           <Button 
             className="w-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30"
             onClick={handleApprove}
             disabled={isApproving || isApproveLoading || !hasEnoughBalance}
           >
-            {isApproving || isApproveLoading ? t('common.approving') : t('common.approve')}
+            {isApproving || isApproveLoading ? 'Approving...' : 'Approve USDT'}
           </Button>
         ) : (
           <Button 
@@ -465,10 +516,72 @@ export function TreasuryPanel() {
               !hasEnoughBalance
             }
           >
-            {isDepositing || isDepositLoading ? t('treasury.depositing') : t('treasury.deposit_earn')}
+            {isDepositing || isDepositLoading ? 'Minting Bond NFT...' : 'Mint Bond NFT & Earn'}
           </Button>
         )}
       </div>
+
+      {/* Compound Modal */}
+      {showCompoundModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-white/10">
+            <h3 className="text-lg font-bold text-white mb-4">Compound into Bond NFT</h3>
+            
+            <div className="mb-4">
+              <label className="text-sm text-gray-400 mb-2 block">Select Bond NFT</label>
+              <select 
+                className="w-full bg-black/50 border border-white/10 rounded p-2 text-white"
+                value={selectedBondId ?? ''}
+                onChange={(e) => setSelectedBondId(Number(e.target.value))}
+              >
+                <option value="">Select a bond...</option>
+                {bondIds && (bondIds as any[]).map((id: any) => (
+                  <option key={id.toString()} value={id.toString()}>
+                    Bond NFT #{id.toString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="mb-4">
+              <label className="text-sm text-gray-400 mb-2 block">Compound Amount (USDT)</label>
+              <Input
+                type="number"
+                placeholder="Enter amount..."
+                value={compoundAmount}
+                onChange={(e) => setCompoundAmount(e.target.value)}
+                className="bg-black/50 border-white/10 text-white"
+              />
+            </div>
+            
+            {compoundAmount && Number(compoundAmount) > 0 && (
+              <div className="mb-4 p-3 rounded bg-orange-500/10 border border-orange-500/20">
+                <div className="text-[10px] text-gray-400">Bonus Power Calculation:</div>
+                <div className="text-sm font-mono text-orange-400">
+                  {(Number(compoundAmount) * 0.5).toLocaleString()} × 110% = {(Number(compoundAmount) * 0.5 * 1.1).toLocaleString()} Power
+                </div>
+              </div>
+            )}
+            
+            <div className="flex gap-3">
+              <Button 
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowCompoundModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                onClick={handleCompound}
+                disabled={isCompounding || isCompoundLoading || !compoundAmount || selectedBondId === null}
+              >
+                {isCompounding || isCompoundLoading ? 'Compounding...' : 'Compound'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </GlassCard>
   );
 }

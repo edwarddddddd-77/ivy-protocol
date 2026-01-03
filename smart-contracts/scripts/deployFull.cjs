@@ -47,16 +47,17 @@ async function main() {
   const ivyCoreAddr = await ivyCore.getAddress();
   console.log("IvyCore deployed to:", ivyCoreAddr);
 
-  // 6. Deploy IvyBond
-  console.log("\n6. Deploying IvyBond...");
+  // 6. Deploy IvyBond (ERC721 Bond NFT)
+  console.log("\n6. Deploying IvyBond (ERC721 Bond NFT)...");
   const IvyBond = await hre.ethers.getContractFactory("IvyBond");
-  const liquidityPool = deployer.address;
-  const rwaWallet = deployer.address;
-  const reservePool = deployer.address;
+  // Constructor params: rwaWallet, liquidityPool, reservePool
+  const rwaWallet = deployer.address;      // 40% - Tranche A
+  const liquidityPool = deployer.address;  // 50% - Tranche B
+  const reservePool = deployer.address;    // 10% - Tranche C
   
   const ivyBond = await IvyBond.deploy(
-    liquidityPool,
     rwaWallet,
+    liquidityPool,
     reservePool
   );
   await ivyBond.waitForDeployment();

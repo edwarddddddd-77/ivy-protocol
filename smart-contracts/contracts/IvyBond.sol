@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -14,29 +15,50 @@ interface IGenesisNodeReferral {
 
 /**
  * @title IvyBond
- * @dev Investment Layer of Ivy Protocol - Handles deposits with 50/40/10 fund split
+ * @dev Bond NFT Contract - Investment Layer of Ivy Protocol
+ * 
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║              WHITEPAPER V2.5 COMPLIANCE                       ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  Asset Type:    ERC721 Bond NFT (NOT mapping-based ledger)    ║
+ * ║  Each deposit mints a unique NFT with its own:                ║
+ * ║  - Deposit timestamp                                          ║
+ * ║  - Principal amount (50% of deposit)                          ║
+ * ║  - Bond power (mining weight)                                 ║
+ * ╚═══════════════════════════════════════════════════════════════╝
  * 
  * ╔═══════════════════════════════════════════════════════════════╗
  * ║                    FUND DISTRIBUTION                          ║
  * ╠═══════════════════════════════════════════════════════════════╣
- * ║  50% → LiquidityPool   (DEX Liquidity)                        ║
- * ║  40% → RWAWallet       (Real World Assets)                    ║
- * ║  10% → ReservePool     (Protocol Reserve)                     ║
+ * ║  Tranche A (40%) → RWA Wallet    (Treasury Bonds)             ║
+ * ║  Tranche B (50%) → Liquidity Pool (Mining Principal)          ║
+ * ║  Tranche C (10%) → Reserve Pool  (Protocol Reserve)           ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  ONLY Tranche B (50%) is recorded as bondData.principal       ║
+ * ║  and used for mining power calculation!                       ║
  * ╚═══════════════════════════════════════════════════════════════╝
  * 
- * IMPORTANT: Referral rewards come from Mining Pool (IvyCore),
- *            NOT deducted from user principal!
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║                 COMPOUND MECHANISM                            ║
+ * ╠═══════════════════════════════════════════════════════════════╣
+ * ║  Whitepaper: "复投部分的资金给予 10% 的算力加成"                ║
+ * ║  Formula: newBondPower = oldBondPower + (amount * 110 / 100)  ║
+ * ╚═══════════════════════════════════════════════════════════════╝
  */
-contract IvyBond is Ownable, ReentrancyGuard {
+contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     
     // ============ Constants ============
     
     /// @notice Distribution rates in basis points (10000 = 100%)
-    uint256 public constant LIQUIDITY_RATE = 5000;   // 50%
-    uint256 public constant RWA_RATE = 4000;         // 40%
-    uint256 public constant RESERVE_RATE = 1000;     // 10%
+    uint256 public constant RWA_RATE = 4000;         // 40% - Tranche A
+    uint256 public constant LIQUIDITY_RATE = 5000;   // 50% - Tranche B (Mining)
+    uint256 public constant RESERVE_RATE = 1000;     // 10% - Tranche C
     uint256 public constant BASIS_POINTS = 10000;
+    
+    /// @notice Compound bonus rate (110% = 10% bonus)
+    uint256 public constant COMPOUND_BONUS = 110;
+    uint256 public constant COMPOUND_BASE = 100;
     
     /// @notice Minimum deposit amount (10 USDT)
     uint256 public constant MIN_DEPOSIT = 10 * 10**18;
@@ -47,9 +69,9 @@ contract IvyBond is Ownable, ReentrancyGuard {
     IERC20 public paymentToken;
     
     /// @notice Distribution wallets
-    address public liquidityPool;    // 50%
-    address public rwaWallet;        // 40%
-    address public reservePool;      // 10%
+    address public rwaWallet;        // 40% - Tranche A
+    address public liquidityPool;    // 50% - Tranche B
+    address public reservePool;      // 10% - Tranche C
     
     /// @notice IvyCore contract address (for reward calculations)
     address public ivyCore;
@@ -57,34 +79,62 @@ contract IvyBond is Ownable, ReentrancyGuard {
     /// @notice GenesisNode contract address (for referral binding)
     address public genesisNode;
     
-    /// @notice User deposit info
+    /// @notice Token ID counter
+    uint256 private _nextTokenId;
+    
+    /// @notice Base URI for token metadata
+    string private _baseTokenURI;
+    
+    /**
+     * @notice Bond NFT Data Structure
+     * @dev Each NFT represents a unique deposit with its own properties
+     * 
+     * Whitepaper Quote: "用户并未直接买到现货，而是拿到了一张 Bond NFT... 
+     *                   这张 NFT 就像一台锁仓矿机..."
+     */
     struct BondInfo {
-        uint256 totalDeposited;      // Total USDT deposited
-        uint256 depositTime;         // Last deposit timestamp
-        uint256 bondPower;           // Calculated bond power for mining
+        uint256 depositTime;         // Timestamp when bond was created
+        uint256 totalDeposited;      // Total USDT deposited (for display)
+        uint256 principal;           // Mining principal (50% of deposit) - Tranche B
+        uint256 bondPower;           // Mining power (principal + compound bonuses)
+        uint256 compoundedAmount;    // Total amount compounded into this bond
     }
     
-    mapping(address => BondInfo) public bonds;
+    /// @notice Bond data mapping: tokenId => BondInfo
+    /// @dev MUST use tokenId-based mapping, NOT address-based (per whitepaper)
+    mapping(uint256 => BondInfo) public bondData;
     
     /// @notice Global stats
     uint256 public totalDeposits;
     uint256 public totalBondPower;
-    uint256 public totalUsers;
+    uint256 public totalBonds;
 
     // ============ Events ============
     
-    event Deposited(
-        address indexed user,
-        uint256 amount,
-        uint256 toLiquidity,
+    event BondMinted(
+        address indexed owner,
+        uint256 indexed tokenId,
+        uint256 depositAmount,
+        uint256 principal,
+        uint256 bondPower,
         uint256 toRWA,
+        uint256 toLiquidity,
         uint256 toReserve
     );
+    
+    event BondCompounded(
+        uint256 indexed tokenId,
+        uint256 amount,
+        uint256 bonusPower,
+        uint256 newBondPower
+    );
+    
     event WalletsUpdated(
-        address liquidityPool,
         address rwaWallet,
+        address liquidityPool,
         address reservePool
     );
+    
     event IvyCoreSet(address indexed ivyCore);
     event GenesisNodeSet(address indexed genesisNode);
     event ReferrerBound(address indexed user, address indexed referrer);
@@ -92,22 +142,22 @@ contract IvyBond is Ownable, ReentrancyGuard {
     // ============ Constructor ============
     
     /**
-     * @dev Initialize the IvyBond contract
-     * @param _liquidityPool Address for liquidity pool (50%)
-     * @param _rwaWallet Address for RWA wallet (40%)
-     * @param _reservePool Address for reserve pool (10%)
+     * @dev Initialize the IvyBond NFT contract
+     * @param _rwaWallet Address for RWA wallet (40% - Tranche A)
+     * @param _liquidityPool Address for liquidity pool (50% - Tranche B)
+     * @param _reservePool Address for reserve pool (10% - Tranche C)
      */
     constructor(
-        address _liquidityPool,
         address _rwaWallet,
+        address _liquidityPool,
         address _reservePool
-    ) Ownable(msg.sender) {
-        require(_liquidityPool != address(0), "Invalid liquidity pool");
+    ) ERC721("Ivy Bond NFT", "IVY-BOND") Ownable(msg.sender) {
         require(_rwaWallet != address(0), "Invalid RWA wallet");
+        require(_liquidityPool != address(0), "Invalid liquidity pool");
         require(_reservePool != address(0), "Invalid reserve pool");
         
-        liquidityPool = _liquidityPool;
         rwaWallet = _rwaWallet;
+        liquidityPool = _liquidityPool;
         reservePool = _reservePool;
     }
 
@@ -143,39 +193,58 @@ contract IvyBond is Ownable, ReentrancyGuard {
      * @dev Update distribution wallet addresses
      */
     function setWallets(
-        address _liquidityPool,
         address _rwaWallet,
+        address _liquidityPool,
         address _reservePool
     ) external onlyOwner {
-        require(_liquidityPool != address(0), "Invalid liquidity pool");
         require(_rwaWallet != address(0), "Invalid RWA wallet");
+        require(_liquidityPool != address(0), "Invalid liquidity pool");
         require(_reservePool != address(0), "Invalid reserve pool");
         
-        liquidityPool = _liquidityPool;
         rwaWallet = _rwaWallet;
+        liquidityPool = _liquidityPool;
         reservePool = _reservePool;
         
-        emit WalletsUpdated(_liquidityPool, _rwaWallet, _reservePool);
+        emit WalletsUpdated(_rwaWallet, _liquidityPool, _reservePool);
+    }
+    
+    /**
+     * @dev Set the base URI for token metadata
+     */
+    function setBaseURI(string calldata baseURI) external onlyOwner {
+        _baseTokenURI = baseURI;
     }
 
     // ============ Core Functions ============
+    
+    /**
+     * @dev Internal function to return base URI
+     */
+    function _baseURI() internal view virtual override returns (string memory) {
+        return _baseTokenURI;
+    }
 
     /**
-     * @dev Deposit USDT to create/increase bond position
+     * @dev Deposit USDT and mint a Bond NFT
      * 
-     * ┌─────────────────────────────────────────────────────────┐
-     * │                 50/40/10 FUND SPLIT                     │
-     * ├─────────────────────────────────────────────────────────┤
-     * │  User deposits 1000 USDT:                               │
-     * │  ├── 500 USDT (50%) → LiquidityPool                    │
-     * │  ├── 400 USDT (40%) → RWAWallet                        │
-     * │  └── 100 USDT (10%) → ReservePool                      │
-     * └─────────────────────────────────────────────────────────┘
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║                 DEPOSIT FLOW (Whitepaper V2.5)                ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  1. User deposits N USDT                                      ║
+     * ║  2. Split funds:                                              ║
+     * ║     - 40% (N * 0.4) → RWA Wallet (Tranche A)                 ║
+     * ║     - 50% (N * 0.5) → Liquidity Pool (Tranche B)             ║
+     * ║     - 10% (N * 0.1) → Reserve Pool (Tranche C)               ║
+     * ║  3. Mint Bond NFT with:                                       ║
+     * ║     - principal = N * 50% (ONLY Tranche B)                   ║
+     * ║     - bondPower = principal (initial, no bonus)              ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      * 
      * @param amount Amount of USDT to deposit
-     * @param referrer Address of the referrer (can be address(0) for no referrer)
+     * @param referrer Address of the referrer (can be address(0))
+     * @return tokenId The ID of the minted Bond NFT
      */
-    function deposit(uint256 amount, address referrer) external nonReentrant {
+    function deposit(uint256 amount, address referrer) external nonReentrant returns (uint256) {
         require(address(paymentToken) != address(0), "Payment token not set");
         require(amount >= MIN_DEPOSIT, "Below minimum deposit");
         
@@ -183,142 +252,210 @@ contract IvyBond is Ownable, ReentrancyGuard {
         
         // Bind referrer if not already bound (CRITICAL: Must happen before any rewards)
         if (genesisNode != address(0) && referrer != address(0) && referrer != user) {
-            IGenesisNodeReferral(genesisNode).bindReferrerFromBond(user, referrer);
+            try IGenesisNodeReferral(genesisNode).bindReferrerFromBond(user, referrer) {
+                emit ReferrerBound(user, referrer);
+            } catch {
+                // Referrer already bound or invalid, continue
+            }
         }
         
         // Transfer USDT from user
         paymentToken.safeTransferFrom(user, address(this), amount);
         
-        // Calculate split amounts
-        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS;  // 50%
-        uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;              // 40%
-        uint256 toReserve = (amount * RESERVE_RATE) / BASIS_POINTS;      // 10%
+        // Calculate split amounts (Whitepaper V2.5 compliant)
+        uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;           // 40% - Tranche A
+        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS; // 50% - Tranche B
+        uint256 toReserve = (amount * RESERVE_RATE) / BASIS_POINTS;   // 10% - Tranche C
         
-        // Execute the 50/40/10 split
-        paymentToken.safeTransfer(liquidityPool, toLiquidity);
+        // Execute the 40/50/10 split
         paymentToken.safeTransfer(rwaWallet, toRWA);
+        paymentToken.safeTransfer(liquidityPool, toLiquidity);
         paymentToken.safeTransfer(reservePool, toReserve);
         
-        // Update user bond info
-        if (bonds[user].totalDeposited == 0) {
-            totalUsers++;
-        }
+        // Mint Bond NFT
+        uint256 tokenId = _nextTokenId++;
+        _safeMint(user, tokenId);
         
-        bonds[user].totalDeposited += amount;
-        bonds[user].depositTime = block.timestamp;
-        bonds[user].bondPower = _calculateBondPower(bonds[user].totalDeposited);
+        // Record bond data
+        // CRITICAL: principal = 50% of deposit (ONLY Tranche B)
+        uint256 principal = toLiquidity;  // 50% of deposit
+        uint256 bondPower = principal;    // Initial bond power = principal (no bonus)
+        
+        bondData[tokenId] = BondInfo({
+            depositTime: block.timestamp,
+            totalDeposited: amount,
+            principal: principal,
+            bondPower: bondPower,
+            compoundedAmount: 0
+        });
         
         // Update global stats
         totalDeposits += amount;
-        totalBondPower += _calculateBondPower(amount);
+        totalBondPower += bondPower;
+        totalBonds++;
         
-        emit Deposited(user, amount, toLiquidity, toRWA, toReserve);
+        emit BondMinted(user, tokenId, amount, principal, bondPower, toRWA, toLiquidity, toReserve);
+        
+        return tokenId;
     }
 
     /**
-     * @dev Calculate bond power from deposit amount
+     * @dev Compound mining rewards into a Bond NFT
      * 
      * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              WHITEPAPER COMPLIANCE (P3, P6)                   ║
+     * ║              COMPOUND MECHANISM (Whitepaper V2.5)             ║
      * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  Only Tranche B (50%) of deposit is used for mining power    ║
-     * ║  Bond Power = Deposit Amount × 50%                           ║
-     * ║                                                               ║
-     * ║  Example: User deposits 10,000 USDT                          ║
-     * ║  - 5,000 USDT (50%) → Mining Power (Tranche B)               ║
-     * ║  - 4,000 USDT (40%) → RWA Assets (Tranche A)                 ║
-     * ║  - 1,000 USDT (10%) → Reserve Pool                           ║
+     * ║  Whitepaper Quote:                                            ║
+     * ║  "将挖矿产出的 VIVY 复投进 Bond NFT...                         ║
+     * ║   系统仅对复投部分的资金给予 10% 的算力加成"                    ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Formula: newBondPower = oldBondPower + (amount * 110 / 100)  ║
+     * ║  Example: Compound 1000 → Gain 1100 bond power                ║
      * ╚═══════════════════════════════════════════════════════════════╝
      * 
-     * @param depositAmount Amount deposited
-     * @return Bond power value (50% of deposit)
+     * @param tokenId The Bond NFT to compound into
+     * @param amount Amount of USDT equivalent to compound
      */
-    function _calculateBondPower(uint256 depositAmount) internal pure returns (uint256) {
-        // Bond Power = Deposit × 50% (Only Tranche B is used for mining)
-        return (depositAmount * LIQUIDITY_RATE) / BASIS_POINTS;
+    function compound(uint256 tokenId, uint256 amount) external nonReentrant {
+        require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
+        require(amount > 0, "Amount must be > 0");
+        require(address(paymentToken) != address(0), "Payment token not set");
+        
+        // Transfer USDT from user (compound requires actual funds)
+        paymentToken.safeTransferFrom(msg.sender, address(this), amount);
+        
+        // Split compound funds same as deposit (40/50/10)
+        uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;
+        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS;
+        uint256 toReserve = (amount * RESERVE_RATE) / BASIS_POINTS;
+        
+        paymentToken.safeTransfer(rwaWallet, toRWA);
+        paymentToken.safeTransfer(liquidityPool, toLiquidity);
+        paymentToken.safeTransfer(reservePool, toReserve);
+        
+        // Calculate bonus power (110% of the 50% principal portion)
+        // Whitepaper: "复投部分的资金给予 10% 的算力加成"
+        uint256 principalPortion = toLiquidity;  // 50% of compound amount
+        uint256 bonusPower = (principalPortion * COMPOUND_BONUS) / COMPOUND_BASE;
+        
+        // Update bond data
+        BondInfo storage bond = bondData[tokenId];
+        
+        bond.totalDeposited += amount;
+        bond.principal += principalPortion;
+        bond.bondPower += bonusPower;
+        bond.compoundedAmount += amount;
+        
+        // Update global stats
+        totalDeposits += amount;
+        totalBondPower += bonusPower;
+        
+        emit BondCompounded(tokenId, amount, bonusPower, bond.bondPower);
     }
 
     // ============ View Functions ============
 
     /**
-     * @dev Get user's bond information
-     * @param user User address
-     * @return totalDeposited Total amount deposited
-     * @return depositTime Last deposit timestamp
-     * @return bondPower User's bond power
-     * @return shareOfPool User's share of total pool (in basis points)
+     * @dev Get bond information by token ID
+     * @param tokenId The Bond NFT token ID
+     * @return depositTime Timestamp when bond was created
+     * @return totalDeposited Total USDT deposited
+     * @return principal Mining principal (50% of deposit)
+     * @return bondPower Current mining power
+     * @return compoundedAmount Total amount compounded
      */
-    function getBondInfo(address user) external view returns (
-        uint256 totalDeposited,
+    function getBondData(uint256 tokenId) external view returns (
         uint256 depositTime,
+        uint256 totalDeposited,
+        uint256 principal,
         uint256 bondPower,
-        uint256 shareOfPool
+        uint256 compoundedAmount
     ) {
-        BondInfo memory bond = bonds[user];
-        uint256 share = 0;
-        if (totalBondPower > 0) {
-            share = (bond.bondPower * BASIS_POINTS) / totalBondPower;
-        }
+        BondInfo memory bond = bondData[tokenId];
         return (
-            bond.totalDeposited,
             bond.depositTime,
+            bond.totalDeposited,
+            bond.principal,
             bond.bondPower,
-            share
+            bond.compoundedAmount
         );
     }
 
     /**
-     * @dev Get user's bond power (for IvyCore integration)
+     * @dev Get total bond power for a user (sum of all their Bond NFTs)
      * @param user User address
-     * @return Bond power value
+     * @return Total bond power across all owned Bond NFTs
      */
-    function getBondPower(address user) external view returns (uint256) {
-        return bonds[user].bondPower;
+    function getUserTotalBondPower(address user) external view returns (uint256) {
+        uint256 balance = balanceOf(user);
+        uint256 total = 0;
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = tokenOfOwnerByIndex(user, i);
+            total += bondData[tokenId].bondPower;
+        }
+        
+        return total;
     }
-
+    
     /**
-     * @dev Check if user has an active bond
+     * @dev Get total principal for a user (sum of all their Bond NFTs)
      * @param user User address
-     * @return True if user has deposited
+     * @return Total principal across all owned Bond NFTs
      */
-    function hasBond(address user) external view returns (bool) {
-        return bonds[user].totalDeposited > 0;
+    function getUserTotalPrincipal(address user) external view returns (uint256) {
+        uint256 balance = balanceOf(user);
+        uint256 total = 0;
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = tokenOfOwnerByIndex(user, i);
+            total += bondData[tokenId].principal;
+        }
+        
+        return total;
+    }
+    
+    /**
+     * @dev Get total deposited for a user (sum of all their Bond NFTs)
+     * @param user User address
+     * @return Total deposited across all owned Bond NFTs
+     */
+    function getUserTotalDeposited(address user) external view returns (uint256) {
+        uint256 balance = balanceOf(user);
+        uint256 total = 0;
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = tokenOfOwnerByIndex(user, i);
+            total += bondData[tokenId].totalDeposited;
+        }
+        
+        return total;
     }
 
     /**
-     * @dev Get contract statistics
-     * @return _totalDeposits Total USDT deposited
-     * @return _totalBondPower Total bond power
-     * @return _totalUsers Total number of users
+     * @dev Get all bond token IDs owned by a user
+     * @param user User address
+     * @return Array of token IDs
      */
-    function getStats() external view returns (
-        uint256 _totalDeposits,
-        uint256 _totalBondPower,
-        uint256 _totalUsers
-    ) {
-        return (totalDeposits, totalBondPower, totalUsers);
-    }
-
-    /**
-     * @dev Get distribution wallet addresses
-     */
-    function getWallets() external view returns (
-        address _liquidityPool,
-        address _rwaWallet,
-        address _reservePool
-    ) {
-        return (liquidityPool, rwaWallet, reservePool);
+    function getUserBondIds(address user) external view returns (uint256[] memory) {
+        uint256 balance = balanceOf(user);
+        uint256[] memory tokenIds = new uint256[](balance);
+        
+        for (uint256 i = 0; i < balance; i++) {
+            tokenIds[i] = tokenOfOwnerByIndex(user, i);
+        }
+        
+        return tokenIds;
     }
     
     /**
      * @dev Get user's fund allocation breakdown (for UI display)
-     * Shows how user's deposit is split according to whitepaper
      * @param user User address
      * @return totalDeposited Total amount deposited by user
      * @return miningPrincipal Amount allocated to mining (50% - Tranche B)
      * @return rwaAssets Amount allocated to RWA (40% - Tranche A)
-     * @return reserveAmount Amount allocated to reserve (10%)
-     * @return effectiveMiningPower Mining power after boosts (calculated by IvyCore)
+     * @return reserveAmount Amount allocated to reserve (10% - Tranche C)
+     * @return effectiveMiningPower Total bond power (with compound bonuses)
      */
     function getFundAllocation(address user) external view returns (
         uint256 totalDeposited,
@@ -327,11 +464,68 @@ contract IvyBond is Ownable, ReentrancyGuard {
         uint256 reserveAmount,
         uint256 effectiveMiningPower
     ) {
-        BondInfo memory bond = bonds[user];
-        totalDeposited = bond.totalDeposited;
-        miningPrincipal = (totalDeposited * LIQUIDITY_RATE) / BASIS_POINTS;  // 50%
-        rwaAssets = (totalDeposited * RWA_RATE) / BASIS_POINTS;              // 40%
-        reserveAmount = (totalDeposited * RESERVE_RATE) / BASIS_POINTS;      // 10%
-        effectiveMiningPower = bond.bondPower;  // This is already 50% of deposit
+        uint256 balance = balanceOf(user);
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = tokenOfOwnerByIndex(user, i);
+            BondInfo memory bond = bondData[tokenId];
+            totalDeposited += bond.totalDeposited;
+            miningPrincipal += bond.principal;
+            effectiveMiningPower += bond.bondPower;
+        }
+        
+        // Calculate RWA and Reserve from total deposited
+        rwaAssets = (totalDeposited * RWA_RATE) / BASIS_POINTS;
+        reserveAmount = (totalDeposited * RESERVE_RATE) / BASIS_POINTS;
+    }
+
+    /**
+     * @dev Check if user has any bonds
+     * @param user User address
+     * @return True if user owns at least one Bond NFT
+     */
+    function hasBond(address user) external view returns (bool) {
+        return balanceOf(user) > 0;
+    }
+
+    /**
+     * @dev Get contract statistics
+     * @return _totalDeposits Total USDT deposited
+     * @return _totalBondPower Total bond power
+     * @return _totalBonds Total number of Bond NFTs minted
+     */
+    function getStats() external view returns (
+        uint256 _totalDeposits,
+        uint256 _totalBondPower,
+        uint256 _totalBonds
+    ) {
+        return (totalDeposits, totalBondPower, totalBonds);
+    }
+
+    /**
+     * @dev Get distribution wallet addresses
+     */
+    function getWallets() external view returns (
+        address _rwaWallet,
+        address _liquidityPool,
+        address _reservePool
+    ) {
+        return (rwaWallet, liquidityPool, reservePool);
+    }
+    
+    /**
+     * @dev Legacy compatibility: Get bond power for a user
+     * Used by IvyCore for mining calculations
+     */
+    function getBondPower(address user) external view returns (uint256) {
+        uint256 balance = balanceOf(user);
+        uint256 total = 0;
+        
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = tokenOfOwnerByIndex(user, i);
+            total += bondData[tokenId].bondPower;
+        }
+        
+        return total;
     }
 }

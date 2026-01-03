@@ -1032,8 +1032,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IIvyBond.sol": {
-      "lastModificationDate": 1767435156380,
-      "contentHash": "e3fd25b81cf67dd1bfe87e3391eded46",
+      "lastModificationDate": 1767462938659,
+      "contentHash": "d3babd324176eb46b5922766cc9aeb50",
       "sourceName": "contracts/IIvyBond.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1107,8 +1107,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyBond.sol": {
-      "lastModificationDate": 1767461372251,
-      "contentHash": "c7607791a27719a3f645073c44c3e220",
+      "lastModificationDate": 1767462951683,
+      "contentHash": "c9922f1e5e85a86ab59c6550ef50b487",
       "sourceName": "contracts/IvyBond.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1135,6 +1135,7 @@
         }
       },
       "imports": [
+        "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol",
         "@openzeppelin/contracts/token/ERC20/IERC20.sol",
         "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
         "@openzeppelin/contracts/access/Ownable.sol",
