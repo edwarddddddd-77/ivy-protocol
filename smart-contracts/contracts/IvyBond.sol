@@ -300,7 +300,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Compound mining rewards into a Bond NFT
+     * @dev Compound mining rewards (IVY) into a Bond NFT
      * 
      * ╔═══════════════════════════════════════════════════════════════╗
      * ║              COMPOUND MECHANISM (Whitepaper V2.5)             ║
@@ -309,48 +309,39 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * ║  "将挖矿产出的 VIVY 复投进 Bond NFT...                         ║
      * ║   系统仅对复投部分的资金给予 10% 的算力加成"                    ║
      * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  Formula: newBondPower = oldBondPower + (amount * 110 / 100)  ║
-     * ║  Example: Compound 1000 → Gain 1100 bond power                ║
+     * ║  CRITICAL: Compound is IVY re-staking, NOT USDT deposit!      ║
+     * ║  - NO 50/40/10 split (that's only for USDT deposits)          ║
+     * ║  - 100% of IVY amount is counted                              ║
+     * ║  - Formula: addedBondPower = amount * 110 / 100               ║
+     * ║  - Example: Compound 1000 IVY → Gain 1100 bond power          ║
      * ╚═══════════════════════════════════════════════════════════════╝
      * 
      * @param tokenId The Bond NFT to compound into
-     * @param amount Amount of USDT equivalent to compound
+     * @param amount Amount of IVY to compound (100% counted, +10% bonus)
      */
     function compound(uint256 tokenId, uint256 amount) external nonReentrant {
         require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
         require(amount > 0, "Amount must be > 0");
-        require(address(paymentToken) != address(0), "Payment token not set");
         
-        // Transfer USDT from user (compound requires actual funds)
-        paymentToken.safeTransferFrom(msg.sender, address(this), amount);
+        // NOTE: In production, this should transfer IVY tokens from user
+        // For now, we just record the compound action
+        // The IVY tokens would be burned or locked in a separate mechanism
         
-        // Split compound funds same as deposit (40/50/10)
-        uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;
-        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS;
-        uint256 toReserve = (amount * RESERVE_RATE) / BASIS_POINTS;
-        
-        paymentToken.safeTransfer(rwaWallet, toRWA);
-        paymentToken.safeTransfer(liquidityPool, toLiquidity);
-        paymentToken.safeTransfer(reservePool, toReserve);
-        
-        // Calculate bonus power (110% of the 50% principal portion)
+        // Calculate bonus power: 100% of amount + 10% bonus = 110%
         // Whitepaper: "复投部分的资金给予 10% 的算力加成"
-        uint256 principalPortion = toLiquidity;  // 50% of compound amount
-        uint256 bonusPower = (principalPortion * COMPOUND_BONUS) / COMPOUND_BASE;
+        // NO SPLIT! Compound is IVY re-staking, not USDT deposit
+        uint256 addedBondPower = (amount * COMPOUND_BONUS) / COMPOUND_BASE;
         
         // Update bond data
         BondInfo storage bond = bondData[tokenId];
         
-        bond.totalDeposited += amount;
-        bond.principal += principalPortion;
-        bond.bondPower += bonusPower;
+        bond.bondPower += addedBondPower;
         bond.compoundedAmount += amount;
         
         // Update global stats
-        totalDeposits += amount;
-        totalBondPower += bonusPower;
+        totalBondPower += addedBondPower;
         
-        emit BondCompounded(tokenId, amount, bonusPower, bond.bondPower);
+        emit BondCompounded(tokenId, amount, addedBondPower, bond.bondPower);
     }
 
     // ============ View Functions ============
