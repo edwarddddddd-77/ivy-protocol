@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -7,11 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Wallet, TrendingUp, Clock, Coins, ArrowRight } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
 
 export function TreasuryPanel() {
   const { address, isConnected } = useAccount();
+  const { t } = useLanguage();
   const [depositAmount, setDepositAmount] = useState('');
   const [isApproving, setIsApproving] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
@@ -134,20 +136,24 @@ export function TreasuryPanel() {
   };
 
   // Handle transaction success
-  if (isApproveSuccess && isApproving) {
-    setIsApproving(false);
-    toast.success('USDT Approved!');
-    refetchAllowance();
-  }
+  useEffect(() => {
+    if (isApproveSuccess && isApproving) {
+      setIsApproving(false);
+      toast.success('USDT Approved!');
+      refetchAllowance();
+    }
+  }, [isApproveSuccess, isApproving, refetchAllowance]);
 
-  if (isDepositSuccess && isDepositing) {
-    setIsDepositing(false);
-    toast.success('Deposit Successful!');
-    setDepositAmount('');
-    refetchBond();
-    refetchMining();
-    refetchUsdtBalance();
-  }
+  useEffect(() => {
+    if (isDepositSuccess && isDepositing) {
+      setIsDepositing(false);
+      toast.success('Deposit Successful!');
+      setDepositAmount('');
+      refetchBond();
+      refetchMining();
+      refetchUsdtBalance();
+    }
+  }, [isDepositSuccess, isDepositing, refetchBond, refetchMining, refetchUsdtBalance]);
 
   // Quick amount buttons
   const quickAmounts = [100, 500, 1000, 5000];
@@ -157,7 +163,7 @@ export function TreasuryPanel() {
       <GlassCard className="p-6 h-full">
         <div className="text-center py-8">
           <Wallet className="w-12 h-12 mx-auto mb-4 text-gray-500" />
-          <p className="text-gray-400">Connect wallet to view treasury</p>
+          <p className="text-gray-400">{t('common.connect_wallet')}</p>
         </div>
       </GlassCard>
     );
@@ -171,8 +177,8 @@ export function TreasuryPanel() {
           <Wallet className="w-6 h-6 text-blue-400" />
         </div>
         <div>
-          <h3 className="text-lg font-bold text-white">TREASURY & YIELD</h3>
-          <p className="text-xs text-gray-400">Investment & Mining Rewards</p>
+          <h3 className="text-lg font-bold text-white">{t('treasury.title')}</h3>
+          <p className="text-xs text-gray-400">{t('treasury.subtitle')}</p>
         </div>
       </div>
 
@@ -180,7 +186,7 @@ export function TreasuryPanel() {
       <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
         <div className="flex items-center gap-2 mb-2">
           <Coins className="w-4 h-4 text-blue-400" />
-          <span className="text-sm text-gray-400">My Principal</span>
+          <span className="text-sm text-gray-400">{t('treasury.my_principal')}</span>
         </div>
         <div className="text-3xl font-bold text-white font-mono">
           {totalDeposited.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -188,7 +194,7 @@ export function TreasuryPanel() {
         </div>
         {bondPower > 0 && (
           <div className="text-xs text-gray-500 mt-1">
-            Bond Power: {bondPower.toLocaleString()} | Pool Share: {shareOfPool.toFixed(2)}%
+            {t('treasury.bond_power')}: {bondPower.toLocaleString()} | {t('treasury.pool_share')}: {shareOfPool.toFixed(2)}%
           </div>
         )}
       </div>
@@ -198,7 +204,7 @@ export function TreasuryPanel() {
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp className="w-3 h-3 text-primary" />
-            <span className="text-xs text-gray-400">Est. Daily Yield</span>
+            <span className="text-xs text-gray-400">{t('treasury.est_daily')}</span>
           </div>
           <div className="text-lg font-bold text-primary font-mono">
             {pendingReward.toFixed(2)} IVY
@@ -213,7 +219,7 @@ export function TreasuryPanel() {
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
           <div className="flex items-center gap-2 mb-1">
             <Clock className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-400">Total Claimed</span>
+            <span className="text-xs text-gray-400">{t('treasury.total_claimed')}</span>
           </div>
           <div className="text-lg font-bold text-white font-mono">
             {totalClaimed.toFixed(2)} IVY
@@ -224,7 +230,7 @@ export function TreasuryPanel() {
       {/* Referral Earnings */}
       <div className="mb-6 p-3 rounded-lg bg-black/40 border border-white/10">
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Referral Earnings</span>
+          <span className="text-sm text-gray-400">{t('treasury.referral_earnings')}</span>
           <span className="text-lg font-bold text-purple-400 font-mono">
             {referralEarnings.toFixed(2)} IVY
           </span>
@@ -233,21 +239,21 @@ export function TreasuryPanel() {
 
       {/* Fund Flow Diagram */}
       <div className="mb-6 p-3 rounded-lg bg-black/40 border border-white/10">
-        <div className="text-xs text-gray-400 mb-2">Fund Distribution (50/40/10)</div>
+        <div className="text-xs text-gray-400 mb-2">{t('treasury.fund_distribution')}</div>
         <div className="flex items-center justify-between text-[10px] font-mono">
           <div className="text-center">
             <div className="text-blue-400">50%</div>
-            <div className="text-gray-500">Liquidity</div>
+            <div className="text-gray-500">{t('treasury.liquidity')}</div>
           </div>
           <ArrowRight className="w-3 h-3 text-gray-600" />
           <div className="text-center">
             <div className="text-purple-400">40%</div>
-            <div className="text-gray-500">RWA</div>
+            <div className="text-gray-500">{t('treasury.rwa')}</div>
           </div>
           <ArrowRight className="w-3 h-3 text-gray-600" />
           <div className="text-center">
             <div className="text-green-400">10%</div>
-            <div className="text-gray-500">Reserve</div>
+            <div className="text-gray-500">{t('treasury.reserve')}</div>
           </div>
         </div>
       </div>
@@ -255,9 +261,9 @@ export function TreasuryPanel() {
       {/* Deposit Section */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-400">Deposit USDT</span>
+          <span className="text-sm text-gray-400">{t('treasury.deposit_usdt')}</span>
           <span className="text-xs text-gray-500 font-mono">
-            Balance: {usdtBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+            {t('treasury.balance')}: {usdtBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
           </span>
         </div>
 
@@ -299,15 +305,15 @@ export function TreasuryPanel() {
         
         {depositAmount && !hasEnoughBalance && (
           <div className="text-xs text-red-400">
-            Insufficient balance. Use faucet below.
+            Insufficient balance. Use faucet.
           </div>
         )}
 
         {/* Action Buttons */}
         {addresses.IvyBond === '0x0000000000000000000000000000000000000000' ? (
           <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-center">
-            <div className="text-yellow-400 text-sm">IvyBond contract not deployed yet</div>
-            <div className="text-xs text-gray-500">Deploy contracts to enable deposits</div>
+            <div className="text-yellow-400 text-sm">{t('treasury.not_deployed')}</div>
+            <div className="text-xs text-gray-500">{t('treasury.deploy_first')}</div>
           </div>
         ) : !hasApproval && depositAmount && Number(depositAmount) >= 10 ? (
           <Button 
@@ -315,7 +321,7 @@ export function TreasuryPanel() {
             onClick={handleApprove}
             disabled={isApproving || isApproveLoading || !hasEnoughBalance}
           >
-            {isApproving || isApproveLoading ? '[ APPROVING... ]' : '[ APPROVE USDT ]'}
+            {isApproving || isApproveLoading ? t('common.approving') : t('common.approve')}
           </Button>
         ) : (
           <Button 
@@ -329,7 +335,7 @@ export function TreasuryPanel() {
               !hasEnoughBalance
             }
           >
-            {isDepositing || isDepositLoading ? '[ DEPOSITING... ]' : '[ DEPOSIT & EARN ]'}
+            {isDepositing || isDepositLoading ? t('treasury.depositing') : t('treasury.deposit_earn')}
           </Button>
         )}
       </div>

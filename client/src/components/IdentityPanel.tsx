@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Shield, Zap, Users, CheckCircle, XCircle } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
 
@@ -13,6 +14,7 @@ const NODE_PRICE = BigInt('1000000000000000000000'); // 1000 USDT
 
 export function IdentityPanel() {
   const { address, isConnected } = useAccount();
+  const { t } = useLanguage();
   const [isApproving, setIsApproving] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
 
@@ -121,25 +123,29 @@ export function IdentityPanel() {
   };
 
   // Handle transaction success
-  if (isApproveSuccess && isApproving) {
-    setIsApproving(false);
-    toast.success('USDT Approved!');
-    refetchAllowance();
-  }
+  useEffect(() => {
+    if (isApproveSuccess && isApproving) {
+      setIsApproving(false);
+      toast.success('USDT Approved!');
+      refetchAllowance();
+    }
+  }, [isApproveSuccess, isApproving, refetchAllowance]);
 
-  if (isMintSuccess && isMinting) {
-    setIsMinting(false);
-    toast.success('Genesis Node Minted!');
-    refetchUserInfo();
-    refetchUsdtBalance();
-  }
+  useEffect(() => {
+    if (isMintSuccess && isMinting) {
+      setIsMinting(false);
+      toast.success('Genesis Node Minted!');
+      refetchUserInfo();
+      refetchUsdtBalance();
+    }
+  }, [isMintSuccess, isMinting, refetchUserInfo, refetchUsdtBalance]);
 
   if (!isConnected) {
     return (
       <GlassCard className="p-6 h-full">
         <div className="text-center py-8">
           <Shield className="w-12 h-12 mx-auto mb-4 text-gray-500" />
-          <p className="text-gray-400">Connect wallet to view identity</p>
+          <p className="text-gray-400">{t('common.connect_wallet')}</p>
         </div>
       </GlassCard>
     );
@@ -162,24 +168,24 @@ export function IdentityPanel() {
           <Shield className="w-6 h-6 text-primary" />
         </div>
         <div>
-          <h3 className="text-lg font-bold text-white">IDENTITY & ACCESS</h3>
-          <p className="text-xs text-gray-400">Genesis Node Membership</p>
+          <h3 className="text-lg font-bold text-white">{t('identity.title')}</h3>
+          <p className="text-xs text-gray-400">{t('identity.subtitle')}</p>
         </div>
       </div>
 
       {/* Identity Status */}
       <div className="mb-6 p-4 rounded-lg bg-black/40 border border-white/10">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-sm text-gray-400">Current Identity</span>
+          <span className="text-sm text-gray-400">{t('identity.current')}</span>
           {isGenesisHolder ? (
             <span className="flex items-center gap-2 text-primary font-mono text-sm">
               <CheckCircle className="w-4 h-4" />
-              GENESIS NODE (ACTIVE)
+              {t('identity.genesis_node')} ({t('identity.active')})
             </span>
           ) : (
             <span className="flex items-center gap-2 text-gray-500 font-mono text-sm">
               <XCircle className="w-4 h-4" />
-              VISITOR
+              {t('identity.visitor')}
             </span>
           )}
         </div>
@@ -195,34 +201,34 @@ export function IdentityPanel() {
       <div className="mb-6 space-y-3">
         <h4 className="text-sm font-bold text-white flex items-center gap-2">
           <Zap className="w-4 h-4 text-primary" />
-          PRIVILEGE BOOSTS
+          {t('identity.privilege_boosts')}
         </h4>
         
         <div className="grid grid-cols-2 gap-3">
           <div className={`p-3 rounded-lg border ${selfBoost > 0 ? 'bg-primary/10 border-primary/30' : 'bg-black/40 border-white/10'}`}>
-            <div className="text-xs text-gray-400 mb-1">Self Boost</div>
+            <div className="text-xs text-gray-400 mb-1">{t('nodes.self_boost')}</div>
             <div className={`text-lg font-bold font-mono ${selfBoost > 0 ? 'text-primary' : 'text-gray-500'}`}>
               +{selfBoost / 100}%
             </div>
             <div className={`text-[10px] ${selfBoost > 0 ? 'text-primary/60' : 'text-gray-600'}`}>
-              {selfBoost > 0 ? '✓ ACTIVE' : '○ INACTIVE'}
+              {selfBoost > 0 ? `✓ ${t('identity.active')}` : '○ INACTIVE'}
             </div>
           </div>
           
           <div className={`p-3 rounded-lg border ${teamAura > 0 ? 'bg-purple-500/10 border-purple-500/30' : 'bg-black/40 border-white/10'}`}>
-            <div className="text-xs text-gray-400 mb-1">Team Aura</div>
+            <div className="text-xs text-gray-400 mb-1">{t('nodes.team_aura')}</div>
             <div className={`text-lg font-bold font-mono ${teamAura > 0 ? 'text-purple-400' : 'text-gray-500'}`}>
               +{teamAura / 100}%
             </div>
             <div className={`text-[10px] ${teamAura > 0 ? 'text-purple-400/60' : 'text-gray-600'}`}>
-              {teamAura > 0 ? '✓ ACTIVE' : '○ INACTIVE'}
+              {teamAura > 0 ? `✓ ${t('identity.active')}` : '○ INACTIVE'}
             </div>
           </div>
         </div>
 
         <div className="p-3 rounded-lg bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-300">Total Mining Boost</span>
+            <span className="text-sm text-gray-300">{t('identity.total_boost')}</span>
             <span className="text-xl font-bold text-white font-mono">+{totalBoost / 100}%</span>
           </div>
         </div>
@@ -232,16 +238,16 @@ export function IdentityPanel() {
       <div className="mb-6 p-3 rounded-lg bg-black/40 border border-white/10">
         <div className="flex items-center gap-2 mb-2">
           <Users className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-400">Your Network</span>
+          <span className="text-sm text-gray-400">{t('identity.your_network')}</span>
         </div>
         <div className="text-2xl font-bold text-white font-mono">{directDownlines}</div>
-        <div className="text-xs text-gray-500">Direct Referrals</div>
+        <div className="text-xs text-gray-500">{t('identity.direct_referrals')}</div>
       </div>
 
       {/* Supply Info */}
       <div className="mb-6 p-3 rounded-lg bg-black/40 border border-white/10">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-xs text-gray-400">Supply</span>
+          <span className="text-xs text-gray-400">{t('identity.supply')}</span>
           <span className="text-xs text-gray-400 font-mono">{currentSupply} / {maxSupply}</span>
         </div>
         <div className="w-full bg-black/50 rounded-full h-2">
@@ -256,23 +262,28 @@ export function IdentityPanel() {
       {!isGenesisHolder && (
         <div className="space-y-3">
           <div className="text-center p-3 bg-black/40 rounded-lg border border-white/10">
-            <div className="text-xs text-gray-400 mb-1">Node Price</div>
+            <div className="text-xs text-gray-400 mb-1">{t('identity.node_price')}</div>
             <div className="text-2xl font-bold text-primary font-mono">1,000 USDT</div>
           </div>
 
           {!hasEnoughBalance && addresses.MockUSDT !== '0x0000000000000000000000000000000000000000' && (
             <div className="text-xs text-red-400 text-center">
-              Insufficient USDT balance. Use faucet below.
+              Insufficient USDT balance. Use faucet.
             </div>
           )}
 
-          {!hasApproval ? (
+          {addresses.GenesisNode === '0x0000000000000000000000000000000000000000' ? (
+            <div className="text-center py-4">
+              <div className="text-yellow-400 text-sm font-bold">{t('identity.not_deployed')}</div>
+              <div className="text-gray-500 text-xs mt-1">{t('identity.deploy_first')}</div>
+            </div>
+          ) : !hasApproval ? (
             <Button 
               className="w-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30"
               onClick={handleApprove}
               disabled={isApproving || isApproveLoading || !hasEnoughBalance || addresses.MockUSDT === '0x0000000000000000000000000000000000000000'}
             >
-              {isApproving || isApproveLoading ? '[ APPROVING... ]' : '[ APPROVE USDT ]'}
+              {isApproving || isApproveLoading ? t('common.approving') : t('common.approve')}
             </Button>
           ) : (
             <Button 
@@ -280,7 +291,7 @@ export function IdentityPanel() {
               onClick={handleMint}
               disabled={isMinting || isMintLoading || !hasEnoughBalance}
             >
-              {isMinting || isMintLoading ? '[ MINTING... ]' : '[ BUY GENESIS NODE ]'}
+              {isMinting || isMintLoading ? t('identity.buying') : t('identity.buy_node')}
             </Button>
           )}
         </div>
@@ -289,7 +300,7 @@ export function IdentityPanel() {
       {isGenesisHolder && (
         <div className="p-4 rounded-lg bg-gradient-to-r from-primary/20 to-purple-500/20 border border-primary/30 text-center">
           <CheckCircle className="w-8 h-8 mx-auto mb-2 text-primary" />
-          <div className="text-sm text-white font-bold">GENESIS MEMBER</div>
+          <div className="text-sm text-white font-bold">{t('identity.genesis_node')}</div>
           <div className="text-xs text-gray-400">All privileges unlocked</div>
         </div>
       )}

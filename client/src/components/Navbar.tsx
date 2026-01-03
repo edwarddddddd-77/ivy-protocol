@@ -118,7 +118,7 @@ export function Navbar({ currentPage }: NavbarProps) {
                 onClick={() => setIsFaucetOpen(true)}
               >
                 <Droplets className="w-3 h-3" />
-                FAUCET
+                {t('nav.faucet')}
               </Button>
             )}
 

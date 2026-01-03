@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Droplets, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
 
@@ -16,6 +17,7 @@ interface FaucetModalProps {
 
 export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
   const { address, isConnected } = useAccount();
+  const { t } = useLanguage();
   const [isClaiming, setIsClaiming] = useState(false);
 
   // Read USDT balance
@@ -98,8 +100,8 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
                     <Droplets className="w-5 h-5 text-yellow-400" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-yellow-400">TESTNET FAUCET</h3>
-                    <p className="text-xs text-gray-500">Development & Testing Only</p>
+                    <h3 className="text-lg font-bold text-yellow-400">{t('faucet.title')}</h3>
+                    <p className="text-xs text-gray-500">{t('faucet.subtitle')}</p>
                   </div>
                 </div>
                 <button
@@ -116,13 +118,13 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
                 <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
                   <AlertTriangle className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
                   <div className="text-xs text-gray-400">
-                    This faucet provides test tokens for development purposes only. These tokens have no real value.
+                    {t('faucet.warning')}
                   </div>
                 </div>
 
                 {/* Balance Display */}
                 <div className="p-4 rounded-lg bg-black/40 border border-white/10">
-                  <div className="text-xs text-gray-400 mb-1">Your MockUSDT Balance</div>
+                  <div className="text-xs text-gray-400 mb-1">{t('faucet.your_balance')}</div>
                   <div className="text-3xl font-bold text-white font-mono">
                     {usdtBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     <span className="text-lg text-gray-500 ml-2">mUSDT</span>
@@ -132,24 +134,24 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
                 {/* Faucet Amount */}
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="p-3 rounded-lg bg-black/40">
-                    <div className="text-xs text-gray-500 mb-1">Faucet Amount</div>
+                    <div className="text-xs text-gray-500 mb-1">{t('faucet.amount')}</div>
                     <div className="text-yellow-400 font-mono font-bold">20,000 mUSDT</div>
                   </div>
                   <div className="p-3 rounded-lg bg-black/40">
-                    <div className="text-xs text-gray-500 mb-1">Use For</div>
-                    <div className="text-gray-300 text-xs">Buy Node + Deposit</div>
+                    <div className="text-xs text-gray-500 mb-1">{t('faucet.use_for')}</div>
+                    <div className="text-gray-300 text-xs">{t('faucet.use_for_desc')}</div>
                   </div>
                 </div>
 
                 {/* Action Button */}
                 {!isConnected ? (
                   <div className="text-center text-gray-400 text-sm py-4">
-                    Please connect your wallet first
+                    {t('common.connect_wallet')}
                   </div>
                 ) : !isContractDeployed ? (
                   <div className="text-center py-4">
-                    <div className="text-yellow-400 text-sm font-bold">Contract Not Deployed</div>
-                    <div className="text-gray-500 text-xs mt-1">Deploy MockUSDT contract first</div>
+                    <div className="text-yellow-400 text-sm font-bold">{t('faucet.not_deployed')}</div>
+                    <div className="text-gray-500 text-xs mt-1">{t('faucet.deploy_first')}</div>
                   </div>
                 ) : (
                   <Button 
@@ -160,12 +162,12 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
                     {isClaiming || isFaucetLoading ? (
                       <span className="flex items-center gap-2">
                         <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"></span>
-                        CLAIMING...
+                        {t('faucet.claiming')}
                       </span>
                     ) : (
                       <span className="flex items-center gap-2">
                         <Droplets className="w-4 h-4" />
-                        CLAIM 20,000 mUSDT
+                        {t('faucet.claim_button')}
                       </span>
                     )}
                   </Button>
@@ -179,7 +181,7 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
                     className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    Tokens claimed successfully!
+                    {t('faucet.success')}
                   </motion.div>
                 )}
               </div>
