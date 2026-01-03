@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAccount, useReadContract } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -20,6 +20,7 @@ export function MyNodes() {
   const { t } = useLanguage();
   const [nftImages, setNftImages] = useState<Record<number, string>>({});
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
+  const [realTokenIds, setRealTokenIds] = useState<number[]>([]);
 
   // 严格从 addresses.json 读取最新的 GenesisNode 合约地址
   const genesisNodeAddress = addresses.GenesisNode as `0x${string}`;
@@ -40,6 +41,43 @@ export function MyNodes() {
     }
   });
 
+  const count = balance ? Number(balance) : 0;
+
+  // Build contracts array for batch reading tokenOfOwnerByIndex
+  const tokenIdContracts = Array.from({ length: count }, (_, i) => ({
+    address: genesisNodeAddress,
+    abi: abis.GenesisNode as any,
+    functionName: 'tokenOfOwnerByIndex',
+    args: [address, BigInt(i)],
+  }));
+
+  // Batch read all token IDs
+  const { data: tokenIdResults } = useReadContracts({
+    contracts: tokenIdContracts,
+    query: {
+      enabled: count > 0 && !!address,
+      staleTime: 0,
+      gcTime: 0,
+    }
+  });
+
+  // Update real token IDs when results change
+  useEffect(() => {
+    if (tokenIdResults && tokenIdResults.length > 0) {
+      const ids = tokenIdResults
+        .map((result) => {
+          if (result.status === 'success' && result.result !== undefined) {
+            return Number(result.result);
+          }
+          return null;
+        })
+        .filter((id): id is number => id !== null);
+      
+      setRealTokenIds(ids);
+      console.log('[MyNodes] Real token IDs:', ids);
+    }
+  }, [tokenIdResults]);
+
   // Force refetch on mount and address change
   useEffect(() => {
     if (address && isConnected) {
@@ -47,11 +85,10 @@ export function MyNodes() {
     }
   }, [address, isConnected, refetch]);
 
-  // Fetch NFT metadata from API
+  // Fetch NFT metadata from API using real token IDs
   useEffect(() => {
-    const count = balance ? Number(balance) : 0;
-    if (count > 0) {
-      Array.from({ length: count }, (_, i) => i).forEach(async (tokenId) => {
+    if (realTokenIds.length > 0) {
+      realTokenIds.forEach(async (tokenId) => {
         try {
           const response = await fetch(`${NFT_API_BASE}/${tokenId}`);
           const metadata = await response.json();
@@ -63,15 +100,12 @@ export function MyNodes() {
         }
       });
     }
-  }, [balance]);
+  }, [realTokenIds]);
 
   // Elegant fallback handler - switch to "Generating..." placeholder on error
   const handleImageError = (tokenId: number) => {
     setImageErrors(prev => ({ ...prev, [tokenId]: true }));
   };
-
-  const count = balance ? Number(balance) : 0;
-  const tokenIds = Array.from({ length: count }, (_, i) => i);
 
   // Not connected state
   if (!isConnected) {
@@ -121,7 +155,10 @@ export function MyNodes() {
     );
   }
 
-  // Success state - show nodes
+  // Use real token IDs if available, otherwise fall back to indices
+  const displayTokenIds = realTokenIds.length > 0 ? realTokenIds : Array.from({ length: count }, (_, i) => i);
+
+  // Success state - show nodes with REAL token IDs
   return (
     <div className="space-y-6">
       <h3 className="text-xl font-bold text-white flex items-center gap-2">
@@ -129,22 +166,25 @@ export function MyNodes() {
       </h3>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {tokenIds.map((id) => {
+        {displayTokenIds.map((tokenId) => {
           // Use API image if available, fallback to default
-          const primaryImage = nftImages[id] || DEFAULT_IMAGE;
+          const primaryImage = nftImages[tokenId] || DEFAULT_IMAGE;
           // If error occurred, show elegant "Generating..." fallback
-          const displayImage = imageErrors[id] ? FALLBACK_IMAGE : primaryImage;
+          const displayImage = imageErrors[tokenId] ? FALLBACK_IMAGE : primaryImage;
+          
+          // Display token ID with +1 offset for user-friendly numbering (Token #0 -> displays as #1)
+          const displayId = tokenId + 1;
           
           return (
-            <GlassCard key={id} className="group hover:border-primary/50 transition-colors overflow-hidden">
+            <GlassCard key={tokenId} className="group hover:border-primary/50 transition-colors overflow-hidden">
               <div className="aspect-square bg-black/50 relative overflow-hidden">
                 {/* Native img tag with elegant fallback on error */}
                 <img 
                   src={displayImage}
-                  alt={`Genesis Node #${id}`}
+                  alt={`Genesis Node #${displayId}`}
                   width={400}
                   height={400}
-                  onError={() => handleImageError(id)}
+                  onError={() => handleImageError(tokenId)}
                   className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                   style={{ display: 'block' }}
                 />
@@ -152,14 +192,17 @@ export function MyNodes() {
                   {t('myNodes.active')}
                 </div>
                 <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded font-mono border border-white/20">
-                  #{id}
+                  #{displayId}
                 </div>
               </div>
               <div className="p-4">
-                <h4 className="font-bold text-white mb-1">{t('myNodes.genesis_node')} #{id}</h4>
+                <h4 className="font-bold text-white mb-1">{t('myNodes.genesis_node')} #{displayId}</h4>
                 <div className="flex justify-between text-xs text-gray-400 font-mono">
                   <span>{t('myNodes.boost')}: 1.1x</span>
                   <span>{t('myNodes.tier')}: ALPHA</span>
+                </div>
+                <div className="text-[10px] text-gray-600 mt-1 font-mono">
+                  Token ID: {tokenId}
                 </div>
               </div>
             </GlassCard>

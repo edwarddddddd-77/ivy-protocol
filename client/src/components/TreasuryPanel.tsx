@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { Wallet, TrendingUp, Clock, Coins, ArrowRight } from 'lucide-react';
+import { Wallet, TrendingUp, Clock, Coins, ArrowRight, Zap, Sparkles } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
@@ -63,6 +63,15 @@ export function TreasuryPanel() {
     query: { enabled: !!address && isConnected }
   });
 
+  // Read user's Genesis Node info for detailed boost breakdown
+  const { data: userInfo } = useReadContract({
+    address: addresses.GenesisNode as `0x${string}`,
+    abi: abis.GenesisNode,
+    functionName: 'getUserInfo',
+    args: [address],
+    query: { enabled: !!address && isConnected }
+  });
+
   // Write contracts
   const { writeContract: approveUSDT, data: approveHash } = useWriteContract();
   const { writeContract: deposit, data: depositHash } = useWriteContract();
@@ -84,7 +93,20 @@ export function TreasuryPanel() {
   const pendingReward = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
   const totalClaimed = miningStats ? Number((miningStats as any)[1]) / 1e18 : 0;
   const referralEarnings = miningStats ? Number((miningStats as any)[2]) / 1e18 : 0;
-  const userBoost = totalBoost ? Number(totalBoost as any) / 100 : 0;
+  
+  // Boost percentages (stored in basis points, 1000 = 10%)
+  const userBoostBps = totalBoost ? Number(totalBoost as any) : 0;
+  const userBoostPercent = userBoostBps / 100; // Convert to percentage
+  
+  // Detailed boost breakdown from userInfo
+  const selfBoostBps = userInfo ? Number((userInfo as any)[3]) : 0;
+  const teamAuraBps = userInfo ? Number((userInfo as any)[4]) : 0;
+  const selfBoostPercent = selfBoostBps / 100;
+  const teamAuraPercent = teamAuraBps / 100;
+
+  // Calculate Mining Power = Principal * (1 + TotalBoost%)
+  const miningPower = totalDeposited * (1 + userBoostPercent / 100);
+  const hasBoost = userBoostPercent > 0;
 
   const usdtBalanceNum = usdtBalance ? Number(usdtBalance as any) / 1e18 : 0;
   const depositAmountBigInt = depositAmount ? parseEther(depositAmount) : BigInt(0);
@@ -182,8 +204,8 @@ export function TreasuryPanel() {
         </div>
       </div>
 
-      {/* My Principal */}
-      <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+      {/* My Principal (本金) */}
+      <div className="mb-4 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-blue-600/10 border border-blue-500/20">
         <div className="flex items-center gap-2 mb-2">
           <Coins className="w-4 h-4 text-blue-400" />
           <span className="text-sm text-gray-400">{t('treasury.my_principal')}</span>
@@ -194,7 +216,62 @@ export function TreasuryPanel() {
         </div>
         {bondPower > 0 && (
           <div className="text-xs text-gray-500 mt-1">
-            {t('treasury.bond_power')}: {bondPower.toLocaleString()} | {t('treasury.pool_share')}: {shareOfPool.toFixed(2)}%
+            {t('treasury.pool_share')}: {shareOfPool.toFixed(4)}%
+          </div>
+        )}
+      </div>
+
+      {/* Mining Power (挖矿算力) - NEW SECTION */}
+      <div className={`mb-6 p-4 rounded-lg border ${hasBoost ? 'bg-gradient-to-r from-primary/10 to-purple-500/10 border-primary/30' : 'bg-black/40 border-white/10'}`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Zap className={`w-4 h-4 ${hasBoost ? 'text-primary' : 'text-gray-400'}`} />
+            <span className="text-sm text-gray-400">{t('treasury.mining_power') || 'Mining Power'}</span>
+          </div>
+          {hasBoost && (
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-primary/20 rounded-full">
+              <Sparkles className="w-3 h-3 text-primary" />
+              <span className="text-[10px] text-primary font-bold">BOOST ACTIVE</span>
+            </div>
+          )}
+        </div>
+        
+        <div className="text-3xl font-bold font-mono">
+          <span className={hasBoost ? 'text-primary' : 'text-white'}>
+            {miningPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+          <span className="text-lg text-gray-400 ml-2">Power</span>
+        </div>
+        
+        {/* Boost Breakdown */}
+        {hasBoost && (
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <div className="text-xs text-gray-400 mb-2">Boost Breakdown:</div>
+            <div className="flex flex-wrap gap-2">
+              {selfBoostPercent > 0 && (
+                <div className="px-2 py-1 bg-primary/10 rounded text-[10px] font-mono text-primary border border-primary/20">
+                  Self Boost: +{selfBoostPercent}%
+                </div>
+              )}
+              {teamAuraPercent > 0 && (
+                <div className="px-2 py-1 bg-purple-500/10 rounded text-[10px] font-mono text-purple-400 border border-purple-500/20">
+                  Team Aura: +{teamAuraPercent}%
+                </div>
+              )}
+              <div className="px-2 py-1 bg-white/5 rounded text-[10px] font-mono text-white border border-white/10">
+                Total: +{userBoostPercent}%
+              </div>
+            </div>
+            <div className="text-[10px] text-gray-500 mt-2 font-mono">
+              Formula: {totalDeposited.toLocaleString()} × (1 + {userBoostPercent}%) = {miningPower.toLocaleString()}
+            </div>
+          </div>
+        )}
+        
+        {/* No Boost Message */}
+        {!hasBoost && totalDeposited > 0 && (
+          <div className="mt-2 text-[10px] text-gray-500">
+            💡 Purchase a Genesis Node to get +10% mining boost!
           </div>
         )}
       </div>
@@ -209,11 +286,6 @@ export function TreasuryPanel() {
           <div className="text-lg font-bold text-primary font-mono">
             {pendingReward.toFixed(2)} IVY
           </div>
-          {userBoost > 0 && (
-            <div className="text-[10px] text-primary/60">
-              +{userBoost}% boost applied
-            </div>
-          )}
         </div>
         
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
@@ -295,6 +367,17 @@ export function TreasuryPanel() {
             USDT
           </span>
         </div>
+
+        {/* Preview Mining Power after deposit */}
+        {depositAmount && Number(depositAmount) >= 10 && (
+          <div className="p-2 rounded bg-primary/5 border border-primary/10">
+            <div className="text-[10px] text-gray-400">After deposit, your Mining Power will be:</div>
+            <div className="text-sm font-bold text-primary font-mono">
+              {((totalDeposited + Number(depositAmount)) * (1 + userBoostPercent / 100)).toLocaleString(undefined, { maximumFractionDigits: 2 })} Power
+              {hasBoost && <span className="text-[10px] text-gray-400 ml-1">(+{userBoostPercent}% boost)</span>}
+            </div>
+          </div>
+        )}
 
         {/* Validation Messages */}
         {depositAmount && Number(depositAmount) < 10 && (

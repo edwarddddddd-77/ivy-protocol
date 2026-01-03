@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { Web3Provider } from "./contexts/Web3Context";
 import { LanguageProvider } from "./contexts/LanguageContext";
+import { ReferralProvider } from "./contexts/ReferralContext";
 import Home from "./pages/Home";
 import Nodes from "./pages/Nodes";
 import Yield from "./pages/Yield";
@@ -32,7 +33,8 @@ function App() {
   return (
     <ErrorBoundary>
       <Web3Provider>
-        <LanguageProvider>
+        <ReferralProvider>
+          <LanguageProvider>
           <ThemeProvider
             defaultTheme="light"
             // switchable
@@ -42,7 +44,8 @@ function App() {
               <Router />
             </TooltipProvider>
           </ThemeProvider>
-        </LanguageProvider>
+          </LanguageProvider>
+        </ReferralProvider>
       </Web3Provider>
     </ErrorBoundary>
   );

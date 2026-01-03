@@ -4,6 +4,9 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./IvyToken.sol";
+import "./IGenesisNode.sol";
+import "./IIvyBond.sol";
+import "./IPriceOracle.sol";
 
 /**
  * @title IvyCore
@@ -29,20 +32,14 @@ import "./IvyToken.sol";
 contract IvyCore is Ownable, ReentrancyGuard {
     
     // ============ Interfaces ============
-    
-    interface IGenesisNode {
-        function getReferrer(address user) external view returns (address);
-        function getSelfBoost(address user) external view returns (uint256);
-        function getTeamAura(address user) external view returns (uint256);
-        function getTotalBoost(address user) external view returns (uint256);
-        function balanceOf(address user) external view returns (uint256);
-    }
-    
-    interface IIvyBond {
-        function getBondPower(address user) external view returns (uint256);
-        function hasBond(address user) external view returns (bool);
-    }
 
+    // ============ State Variables ============
+    
+    IGenesisNode public genesisNode;
+    IIvyBond public ivyBond;
+    IvyToken public ivyToken;
+    IPriceOracle public priceOracle;
+    
     // ============ Constants ============
     
     /// @notice Referral reward rates in basis points
@@ -67,11 +64,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Claim cooldown period
     uint256 public constant CLAIM_COOLDOWN = 24 hours;
 
-    // ============ State Variables ============
-    
-    IvyToken public ivyToken;
-    IGenesisNode public genesisNode;
-    IIvyBond public ivyBond;
+    // ============ State Variables (continued) ============
     
     /// @notice Current emission factor (decreases with halving)
     uint256 public emissionFactor = 10**18;  // 1.0 in 18 decimals

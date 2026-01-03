@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Shield, Zap, Users, CheckCircle, XCircle } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useReferral } from '@/contexts/ReferralContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
 
@@ -15,6 +16,7 @@ const NODE_PRICE = BigInt('1000000000000000000000'); // 1000 USDT
 export function IdentityPanel() {
   const { address, isConnected } = useAccount();
   const { t } = useLanguage();
+  const { referrer } = useReferral();
   const [isApproving, setIsApproving] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
 
@@ -109,11 +111,15 @@ export function IdentityPanel() {
     
     setIsMinting(true);
     try {
+      // Use referrer from context (stored from URL ?ref= parameter)
+      const referrerAddress = referrer || '0x0000000000000000000000000000000000000000';
+      console.log('[IdentityPanel] Minting with referrer:', referrerAddress);
+      
       mintNode({
         address: addresses.GenesisNode as `0x${string}`,
         abi: abis.GenesisNode,
         functionName: 'mint',
-        args: ['0x0000000000000000000000000000000000000000'], // No referrer for now
+        args: [referrerAddress as `0x${string}`],
       });
       toast.info('Mint transaction submitted...');
     } catch (error) {
