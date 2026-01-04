@@ -639,6 +639,19 @@
     },
     {
       "inputs": [],
+      "name": "MINING_CAP",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "PEER_BONUS_RATE",
       "outputs": [
         {
@@ -902,7 +915,7 @@
         },
         {
           "internalType": "uint256",
-          "name": "_hardCap",
+          "name": "_miningCap",
           "type": "uint256"
         },
         {
@@ -2518,7 +2531,13 @@
   ],
   "IvyToken": [
     {
-      "inputs": [],
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_operationsWallet",
+          "type": "address"
+        }
+      ],
       "stateMutability": "nonpayable",
       "type": "constructor"
     },
@@ -2828,6 +2847,19 @@
     },
     {
       "inputs": [],
+      "name": "MINING_ALLOCATION",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "OPS_RATE",
       "outputs": [
         {
@@ -2841,7 +2873,33 @@
     },
     {
       "inputs": [],
+      "name": "PRE_MINT_AMOUNT",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "TAX_RATE",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TOTAL_SUPPLY_CAP",
       "outputs": [
         {
           "internalType": "uint256",
@@ -4098,9 +4156,15 @@
           "type": "uint256"
         },
         {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
           "indexed": false,
           "internalType": "uint256",
-          "name": "amount",
+          "name": "ivyBurned",
           "type": "uint256"
         },
         {
@@ -4155,6 +4219,12 @@
         {
           "indexed": false,
           "internalType": "uint256",
+          "name": "donation",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
           "name": "toRWA",
           "type": "uint256"
         },
@@ -4198,6 +4268,19 @@
         }
       ],
       "name": "IvyCoreSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "ivyToken",
+          "type": "address"
+        }
+      ],
+      "name": "IvyTokenSet",
       "type": "event"
     },
     {
@@ -4329,6 +4412,32 @@
     },
     {
       "inputs": [],
+      "name": "DEAD_ADDRESS",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DONATION_RATE",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "LIQUIDITY_RATE",
       "outputs": [
         {
@@ -4343,19 +4452,6 @@
     {
       "inputs": [],
       "name": "MIN_DEPOSIT",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "RESERVE_RATE",
       "outputs": [
         {
           "internalType": "uint256",
@@ -4604,22 +4700,17 @@
         },
         {
           "internalType": "uint256",
-          "name": "miningPrincipal",
+          "name": "redeemablePrincipal",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "rwaAssets",
+          "name": "miningPower",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "reserveAmount",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "effectiveMiningPower",
+          "name": "donatedAmount",
           "type": "uint256"
         }
       ],
@@ -4643,6 +4734,21 @@
         {
           "internalType": "uint256",
           "name": "_totalBonds",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_totalPrincipal",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_totalDonated",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_totalCompoundBurned",
           "type": "uint256"
         }
       ],
@@ -4797,6 +4903,19 @@
       "outputs": [
         {
           "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ivyToken",
+      "outputs": [
+        {
+          "internalType": "contract IERC20",
           "name": "",
           "type": "address"
         }
@@ -5020,6 +5139,19 @@
       "inputs": [
         {
           "internalType": "address",
+          "name": "_ivyToken",
+          "type": "address"
+        }
+      ],
+      "name": "setIvyToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
           "name": "_paymentToken",
           "type": "address"
         }
@@ -5174,7 +5306,46 @@
     },
     {
       "inputs": [],
+      "name": "totalCompoundBurned",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "totalDeposits",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalDonated",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalPrincipal",
       "outputs": [
         {
           "internalType": "uint256",
