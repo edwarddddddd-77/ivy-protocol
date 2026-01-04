@@ -613,8 +613,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyCore.sol": {
-      "lastModificationDate": 1767542448352,
-      "contentHash": "099c17d11809c965911e33a64146b9b9",
+      "lastModificationDate": 1767558414487,
+      "contentHash": "e84beb6ddac304a943cc5ae7ae818cb8",
       "sourceName": "contracts/IvyCore.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -645,7 +645,8 @@
         "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
         "./IvyToken.sol",
         "./IGenesisNode.sol",
-        "./IIvyBond.sol"
+        "./IIvyBond.sol",
+        "./IPriceOracle.sol"
       ],
       "versionPragmas": [
         "^0.8.20"
@@ -655,8 +656,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IPriceOracle.sol": {
-      "lastModificationDate": 1767527395321,
-      "contentHash": "b549a7cf72e6605a9dcba10735891e48",
+      "lastModificationDate": 1767557307986,
+      "contentHash": "d3cfd14b1c0dca40a876067e1c84fc80",
       "sourceName": "contracts/IPriceOracle.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -845,8 +846,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/MockOracle.sol": {
-      "lastModificationDate": 1767527395321,
-      "contentHash": "a07deb73f245c9a2f1e066141a55b6eb",
+      "lastModificationDate": 1767557322438,
+      "contentHash": "c0a55da56742f4bbfab72bc7004d0e4f",
       "sourceName": "contracts/MockOracle.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -925,8 +926,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IIvyBond.sol": {
-      "lastModificationDate": 1767542448352,
-      "contentHash": "f1739698ff6b81a024bdcc35c5a85e67",
+      "lastModificationDate": 1767555955939,
+      "contentHash": "9b852ff81a3815e725107ddd8bf90986",
       "sourceName": "contracts/IIvyBond.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1193,8 +1194,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyBond.sol": {
-      "lastModificationDate": 1767552330783,
-      "contentHash": "ed3b26a890b561daf04ab5e2d136e897",
+      "lastModificationDate": 1767555942495,
+      "contentHash": "e92f8c58bd0aadd7db512382b13e5ea4",
       "sourceName": "contracts/IvyBond.sol",
       "solcConfig": {
         "version": "0.8.20",

@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./IvyToken.sol";
 import "./IGenesisNode.sol";
 import "./IIvyBond.sol";
+import "./IPriceOracle.sol";
 
 /**
  * @title IvyCore
@@ -45,6 +46,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
     IGenesisNode public genesisNode;
     IIvyBond public ivyBond;
     IvyToken public ivyToken;
+    IPriceOracle public oracle;
     
     // ============ Basic Constants ============
     
@@ -187,6 +189,8 @@ contract IvyCore is Ownable, ReentrancyGuard {
     event CircuitBreakerTriggered(BreakerLevel level, uint256 activationTime, uint256 activationPrice);
     event CircuitBreakerReset(BreakerLevel previousLevel);
     event PriceUpdated(uint256 currentPrice, uint256 ma30Price, uint256 price1hAgo);
+    event VestedCompounded(address indexed user, uint256 indexed tokenId, uint256 pendingIvy, uint256 bonusPower);
+    event PriceOracleSet(address indexed oracle);
 
     // ============ Constructor ============
     
@@ -205,6 +209,12 @@ contract IvyCore is Ownable, ReentrancyGuard {
     function setIvyBond(address _ivyBond) external onlyOwner {
         require(_ivyBond != address(0), "Invalid address");
         ivyBond = IIvyBond(_ivyBond);
+    }
+    
+    function setOracle(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "Invalid address");
+        oracle = IPriceOracle(_oracle);
+        emit PriceOracleSet(_oracle);
     }
     
     /**
@@ -812,5 +822,45 @@ contract IvyCore is Ownable, ReentrancyGuard {
      */
     function getPIDAlpha() external view returns (uint256) {
         return _calculatePIDAlpha(currentPrice, ma30Price);
+    }
+
+    // ============ VIP Compound Function (The Missing Piece) ============
+
+    /**
+     * @dev VIP Path: Compound pending vIVY directly into Bond Power
+     * Benefits: No vesting wait time, No tax, +10% Bonus Power
+     */
+    function compoundVested(uint256 tokenId) external nonReentrant {
+        // 1. Check Ownership
+        require(ivyBond.ownerOfBond(tokenId) == msg.sender, "Not bond owner");
+        updatePool();
+        
+        UserInfo storage user = userInfo[msg.sender];
+        
+        // 2. Calculate Pending (Unlocked + Vested)
+        uint256 pending = (user.bondPower * accIvyPerShare / ACC_IVY_PRECISION) - user.rewardDebt;
+        uint256 totalPending = pending + user.pendingVested;
+        require(totalPending > 0, "No pending rewards");
+
+        // 3. Update State (Reset Debt & Clear Vesting) -> PREVENT DOUBLE SPEND
+        user.rewardDebt = user.bondPower * accIvyPerShare / ACC_IVY_PRECISION;
+        user.pendingVested = 0;
+        
+        // 4. Calculate Value via Oracle
+        // Note: Oracle returns price with 18 decimals (1e18 = $1.0)
+        uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
+        require(ivyPrice > 0, "Oracle price is zero");
+        
+        // Value in USDT = (Amount * Price) / 1e18
+        uint256 valueInUSDT = (totalPending * ivyPrice) / 10**18;
+
+        // 5. Calculate Power to Add (10% Bonus)
+        // Power = Value * 1.1
+        uint256 powerToAdd = (valueInUSDT * 110) / 100;
+
+        // 6. Inject to Bond (Cross-Contract Call)
+        ivyBond.addCompoundPower(tokenId, powerToAdd);
+        
+        emit VestedCompounded(msg.sender, tokenId, totalPending, powerToAdd);
     }
 }

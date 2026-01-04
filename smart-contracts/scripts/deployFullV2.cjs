@@ -103,6 +103,8 @@ async function main() {
   console.log("  - IvyCore GenesisNode reference set");
   await ivyCore.setIvyBond(ivyBondAddr);
   console.log("  - IvyCore IvyBond reference set");
+  await ivyCore.setOracle(mockOracleAddr);
+  console.log("  - IvyCore Oracle reference set");
   
   // GenesisNode setup
   await genesisNode.setPaymentToken(mockUSDTAddr);
@@ -117,6 +119,8 @@ async function main() {
   console.log("  - IvyBond payment token set to MockUSDT");
   await ivyBond.setIvyCore(ivyCoreAddr);
   console.log("  - IvyBond IvyCore reference set");
+  await ivyBond.setIvyToken(ivyTokenAddr);
+  console.log("  - IvyBond IvyToken reference set");
   
   // DividendPool setup
   await dividendPool.setPhotosynthesis(photosynthesisAddr);
@@ -131,6 +135,11 @@ async function main() {
   console.log("  - Photosynthesis RWA wallet set");
   await photosynthesis.setKeeper(deployer.address);
   console.log("  - Photosynthesis keeper set to deployer");
+
+  // 【上帝定价】初始化 IVY 价格 (防止复投报错)
+  console.log("\n  Setting initial IVY price...");
+  await mockOracle.setAssetPrice(ivyTokenAddr, hre.ethers.parseEther("1"));
+  console.log("  INITIAL PRICE SET: 1 IVY = 1 USDT");
 
   // 10. Save Contract Addresses for Frontend
   console.log("\n10. Saving addresses to frontend...");

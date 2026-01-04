@@ -60,4 +60,10 @@ interface IIvyBond {
     
     /// @notice ERC721 token of owner by index
     function tokenOfOwnerByIndex(address owner, uint256 index) external view returns (uint256);
+    
+    /// @notice Add compound power to a Bond NFT (VIP Compound - called by IvyCore)
+    function addCompoundPower(uint256 tokenId, uint256 addedPower) external;
+    
+    /// @notice Get the owner of a Bond NFT
+    function ownerOfBond(uint256 tokenId) external view returns (address);
 }

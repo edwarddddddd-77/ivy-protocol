@@ -169,6 +169,14 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     event GenesisNodeSet(address indexed genesisNode);
     event IvyTokenSet(address indexed ivyToken);
     event ReferrerBound(address indexed user, address indexed referrer);
+    
+    /// @notice Event emitted when IvyCore adds compound power via VIP compound
+    event CompoundPowerAdded(
+        uint256 indexed tokenId,
+        address indexed user,
+        uint256 addedPower,
+        uint256 newBondPower
+    );
 
     // ============ Constructor ============
     
@@ -597,5 +605,60 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         }
         
         return total;
+    }
+    
+    // ============ VIP Compound Functions (Called by IvyCore) ============
+    
+    /**
+     * @dev Add compound power to a Bond NFT (VIP Compound)
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              VIP COMPOUND - POWER INJECTION                   ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Called by IvyCore.compoundVested() to inject mining power    ║
+     * ║  into a Bond NFT without any token transfer.                  ║
+     * ║                                                               ║
+     * ║  Flow:                                                        ║
+     * ║  1. User calls IvyCore.compoundVested(tokenId)               ║
+     * ║  2. IvyCore calculates pending IVY value in USDT             ║
+     * ║  3. IvyCore calls this function to inject power              ║
+     * ║  4. bondPower increases, principal stays the same            ║
+     * ║                                                               ║
+     * ║  CRITICAL: Only bondPower is increased, NOT principal!       ║
+     * ║  This is pure mining power injection, no redeemable value.   ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     * 
+     * @param tokenId The Bond NFT to add power to
+     * @param addedPower The amount of bond power to add (in USDT value * 1.1)
+     * 
+     * Requirements:
+     * - Caller must be IvyCore contract
+     * - Token must exist
+     */
+    function addCompoundPower(uint256 tokenId, uint256 addedPower) external {
+        require(msg.sender == ivyCore, "Only IvyCore can call");
+        require(addedPower > 0, "Power must be > 0");
+        require(_ownerOf(tokenId) != address(0), "Token does not exist");
+        
+        // Get bond owner for event
+        address owner = _ownerOf(tokenId);
+        
+        // Update bond data - ONLY bondPower, NOT principal!
+        BondInfo storage bond = bondData[tokenId];
+        bond.bondPower += addedPower;
+        
+        // Update global stats
+        totalBondPower += addedPower;
+        
+        emit CompoundPowerAdded(tokenId, owner, addedPower, bond.bondPower);
+    }
+    
+    /**
+     * @dev Get the owner of a token (for IvyCore to verify ownership)
+     * @param tokenId The token ID to check
+     * @return The owner address
+     */
+    function ownerOfBond(uint256 tokenId) external view returns (address) {
+        return _ownerOf(tokenId);
     }
 }
