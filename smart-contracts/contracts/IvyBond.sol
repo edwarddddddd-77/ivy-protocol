@@ -43,6 +43,11 @@ interface IGenesisNodeReferral {
  * ╠═══════════════════════════════════════════════════════════════╣
  * ║  Whitepaper: "复投部分的资金给予 10% 的算力加成"                ║
  * ║  Formula: newBondPower = oldBondPower + (amount * 110 / 100)  ║
+ * ║                                                               ║
+ * ║  REAL COMPOUND (Audit Report 3.1-A2):                         ║
+ * ║  - User must transfer IVY tokens to DEAD_ADDRESS (burn)       ║
+ * ║  - Only after successful burn, bondPower is increased         ║
+ * ║  - Logic: Compound = Burn circulating tokens for NFT power    ║
  * ╚═══════════════════════════════════════════════════════════════╝
  */
 contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
@@ -62,11 +67,17 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /// @notice Minimum deposit amount (10 USDT)
     uint256 public constant MIN_DEPOSIT = 10 * 10**18;
+    
+    /// @notice Dead address for burning IVY tokens during compound
+    address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     // ============ State Variables ============
     
     /// @notice Payment token (USDT)
     IERC20 public paymentToken;
+    
+    /// @notice IVY token for compound operations
+    IERC20 public ivyToken;
     
     /// @notice Distribution wallets
     address public rwaWallet;        // 40% - Tranche A
@@ -84,6 +95,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /// @notice Base URI for token metadata
     string private _baseTokenURI;
+    
+    /// @notice Total IVY burned through compound operations
+    uint256 public totalCompoundBurned;
     
     /**
      * @notice Bond NFT Data Structure
@@ -124,7 +138,8 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     event BondCompounded(
         uint256 indexed tokenId,
-        uint256 amount,
+        address indexed user,
+        uint256 ivyBurned,
         uint256 bonusPower,
         uint256 newBondPower
     );
@@ -137,6 +152,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     event IvyCoreSet(address indexed ivyCore);
     event GenesisNodeSet(address indexed genesisNode);
+    event IvyTokenSet(address indexed ivyToken);
     event ReferrerBound(address indexed user, address indexed referrer);
 
     // ============ Constructor ============
@@ -169,6 +185,16 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     function setPaymentToken(address _paymentToken) external onlyOwner {
         require(_paymentToken != address(0), "Invalid token");
         paymentToken = IERC20(_paymentToken);
+    }
+    
+    /**
+     * @dev Set the IVY token address for compound operations
+     * @param _ivyToken Address of the IvyToken contract
+     */
+    function setIvyToken(address _ivyToken) external onlyOwner {
+        require(_ivyToken != address(0), "Invalid IvyToken");
+        ivyToken = IERC20(_ivyToken);
+        emit IvyTokenSet(_ivyToken);
     }
 
     /**
@@ -303,33 +329,48 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * @dev Compound mining rewards (IVY) into a Bond NFT
      * 
      * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              COMPOUND MECHANISM (Whitepaper V2.5)             ║
+     * ║              REAL COMPOUND MECHANISM (Audit Report 3.1-A2)    ║
      * ╠═══════════════════════════════════════════════════════════════╣
      * ║  Whitepaper Quote:                                            ║
      * ║  "将挖矿产出的 VIVY 复投进 Bond NFT...                         ║
      * ║   系统仅对复投部分的资金给予 10% 的算力加成"                    ║
      * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  CRITICAL: Compound is IVY re-staking, NOT USDT deposit!      ║
-     * ║  - NO 50/40/10 split (that's only for USDT deposits)          ║
-     * ║  - 100% of IVY amount is counted                              ║
-     * ║  - Formula: addedBondPower = amount * 110 / 100               ║
-     * ║  - Example: Compound 1000 IVY → Gain 1100 bond power          ║
+     * ║  IMPLEMENTATION:                                              ║
+     * ║  1. User calls compound(tokenId, amount)                      ║
+     * ║  2. Contract transfers IVY from user to DEAD_ADDRESS (burn)   ║
+     * ║  3. ONLY if transfer succeeds, bondPower is increased         ║
+     * ║  4. Formula: addedBondPower = amount * 110 / 100              ║
+     * ║  5. Example: Compound 1000 IVY → Burn 1000 IVY → Gain 1100 BP ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  LOGIC CLOSURE:                                               ║
+     * ║  Compound = Burn circulating IVY tokens in exchange for       ║
+     * ║             NFT mining power (+10% bonus)                     ║
      * ╚═══════════════════════════════════════════════════════════════╝
      * 
      * @param tokenId The Bond NFT to compound into
-     * @param amount Amount of IVY to compound (100% counted, +10% bonus)
+     * @param amount Amount of IVY to burn and convert to bond power
+     * 
+     * Requirements:
+     * - Caller must own the Bond NFT
+     * - Caller must have approved this contract to spend IVY tokens
+     * - IvyToken address must be set
+     * - Amount must be greater than 0
      */
     function compound(uint256 tokenId, uint256 amount) external nonReentrant {
         require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
         require(amount > 0, "Amount must be > 0");
+        require(address(ivyToken) != address(0), "IvyToken not set");
         
-        // NOTE: In production, this should transfer IVY tokens from user
-        // For now, we just record the compound action
-        // The IVY tokens would be burned or locked in a separate mechanism
+        address user = msg.sender;
+        
+        // CRITICAL: Transfer IVY tokens from user to DEAD_ADDRESS (burn)
+        // This is the "Real Compound" implementation per Audit Report 3.1-A2
+        // User must have approved this contract to spend their IVY tokens
+        ivyToken.safeTransferFrom(user, DEAD_ADDRESS, amount);
         
         // Calculate bonus power: 100% of amount + 10% bonus = 110%
         // Whitepaper: "复投部分的资金给予 10% 的算力加成"
-        // NO SPLIT! Compound is IVY re-staking, not USDT deposit
+        // NO SPLIT! Compound is IVY burning, not USDT deposit
         uint256 addedBondPower = (amount * COMPOUND_BONUS) / COMPOUND_BASE;
         
         // Update bond data
@@ -340,8 +381,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         
         // Update global stats
         totalBondPower += addedBondPower;
+        totalCompoundBurned += amount;
         
-        emit BondCompounded(tokenId, amount, addedBondPower, bond.bondPower);
+        emit BondCompounded(tokenId, user, amount, addedBondPower, bond.bondPower);
     }
 
     // ============ View Functions ============
@@ -484,13 +526,15 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * @return _totalDeposits Total USDT deposited
      * @return _totalBondPower Total bond power
      * @return _totalBonds Total number of Bond NFTs minted
+     * @return _totalCompoundBurned Total IVY burned through compound
      */
     function getStats() external view returns (
         uint256 _totalDeposits,
         uint256 _totalBondPower,
-        uint256 _totalBonds
+        uint256 _totalBonds,
+        uint256 _totalCompoundBurned
     ) {
-        return (totalDeposits, totalBondPower, totalBonds);
+        return (totalDeposits, totalBondPower, totalBonds, totalCompoundBurned);
     }
 
     /**
