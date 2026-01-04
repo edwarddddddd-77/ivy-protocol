@@ -51,7 +51,8 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Referral reward rates in basis points
     uint256 public constant L1_RATE = 1000;          // 10%
     uint256 public constant L2_RATE = 500;           // 5%
-    uint256 public constant INFINITE_RATE = 200;     // 2%
+    uint256 public constant INFINITE_RATE = 200;     // 2% (Team Bonus - captured by node holder)
+    uint256 public constant PEER_BONUS_RATE = 50;    // 0.5% (Peer Bonus - for blocked upline)
     uint256 public constant BASIS_POINTS = 10000;
     
     /// @notice Maximum referral depth for gas protection
@@ -176,6 +177,8 @@ contract IvyCore is Ownable, ReentrancyGuard {
     event VestingClaimed(address indexed user, uint256 amount);
     event InstantCashOut(address indexed user, uint256 received, uint256 burned);
     event ReferralRewardPaid(address indexed referrer, address indexed from, uint256 amount, uint256 level);
+    event TeamBonusCaptured(address indexed capturer, address indexed blockedUpline, uint256 amount, uint256 depth);
+    event PeerBonusPaid(address indexed receiver, address indexed capturer, uint256 amount);
     event HalvingOccurred(uint256 newEmissionFactor, uint256 totalMinted);
     event CircuitBreakerTriggered(BreakerLevel level, uint256 activationTime, uint256 activationPrice);
     event CircuitBreakerReset(BreakerLevel previousLevel);
@@ -593,43 +596,92 @@ contract IvyCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Distribute referral rewards
+     * @dev Distribute referral rewards with Breakaway Algorithm
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              BREAKAWAY ALGORITHM (Pioneer Card P2)            ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  L1 (Direct):     10% to direct referrer                      ║
+     * ║  L2 (Indirect):   5% to referrer's referrer                   ║
+     * ║  Team Bonus:      2% to nearest GenesisNode holder (L3+)      ║
+     * ║  Peer Bonus:      0.5% to TeamLeader's upline (if also node)  ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  BREAKAWAY: Once TeamLeader captures 2%, search stops         ║
+     * ║  MAX_DEPTH: 20 layers to prevent gas exhaustion               ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function _distributeReferralRewards(address user, uint256 amount) internal {
         if (address(genesisNode) == address(0)) return;
         
-        address currentReferrer = genesisNode.getReferrer(user);
-        uint256 depth = 0;
+        // ========== STEP 1: L1 Direct Referral (10%) ==========
+        address l1Referrer = genesisNode.getReferrer(user);
+        if (l1Referrer == address(0)) return;
         
-        while (currentReferrer != address(0) && depth < MAX_REFERRAL_DEPTH) {
-            uint256 rewardRate;
+        uint256 l1Reward = (amount * L1_RATE) / BASIS_POINTS;
+        if (l1Reward > 0) {
+            totalMinted += l1Reward;
+            ivyToken.mint(l1Referrer, l1Reward);
+            referralRewardsEarned[l1Referrer] += l1Reward;
+            emit ReferralRewardPaid(l1Referrer, user, l1Reward, 1);
+        }
+        
+        // ========== STEP 2: L2 Indirect Referral (5%) ==========
+        address l2Referrer = genesisNode.getReferrer(l1Referrer);
+        if (l2Referrer != address(0)) {
+            uint256 l2Reward = (amount * L2_RATE) / BASIS_POINTS;
+            if (l2Reward > 0) {
+                totalMinted += l2Reward;
+                ivyToken.mint(l2Referrer, l2Reward);
+                referralRewardsEarned[l2Referrer] += l2Reward;
+                emit ReferralRewardPaid(l2Referrer, user, l2Reward, 2);
+            }
+        }
+        
+        // ========== STEP 3: Team Bonus with Breakaway (2%) ==========
+        // Start from L1, search upward for nearest GenesisNode holder
+        address searchAddr = l1Referrer;
+        address teamLeader = address(0);
+        uint256 teamLeaderDepth = 0;
+        uint256 iterations = 0;
+        
+        // While loop with max 20 iterations to prevent gas exhaustion
+        while (searchAddr != address(0) && iterations < MAX_REFERRAL_DEPTH) {
+            // Check if this address holds a GenesisNode NFT
+            if (genesisNode.balanceOf(searchAddr) > 0) {
+                teamLeader = searchAddr;
+                teamLeaderDepth = iterations + 1;  // +1 because we start from L1
+                break;  // BREAKAWAY: Stop searching once found
+            }
             
-            if (depth == 0) {
-                rewardRate = L1_RATE;  // 10%
-            } else if (depth == 1) {
-                rewardRate = L2_RATE;  // 5%
-            } else {
-                // L3+ only for qualified (node holders)
-                if (genesisNode.balanceOf(currentReferrer) > 0) {
-                    rewardRate = INFINITE_RATE;  // 2%
-                } else {
-                    currentReferrer = genesisNode.getReferrer(currentReferrer);
-                    depth++;
-                    continue;
+            // Move to next upline
+            searchAddr = genesisNode.getReferrer(searchAddr);
+            iterations++;
+        }
+        
+        // Pay Team Bonus if TeamLeader found
+        if (teamLeader != address(0)) {
+            uint256 teamReward = (amount * INFINITE_RATE) / BASIS_POINTS;
+            if (teamReward > 0) {
+                totalMinted += teamReward;
+                ivyToken.mint(teamLeader, teamReward);
+                referralRewardsEarned[teamLeader] += teamReward;
+                emit TeamBonusCaptured(teamLeader, user, teamReward, teamLeaderDepth);
+            }
+            
+            // ========== STEP 4: Peer Bonus (0.5%) ==========
+            // Check if TeamLeader's direct upline is also a GenesisNode holder
+            address leaderUpline = genesisNode.getReferrer(teamLeader);
+            if (leaderUpline != address(0) && genesisNode.balanceOf(leaderUpline) > 0) {
+                uint256 peerReward = (amount * PEER_BONUS_RATE) / BASIS_POINTS;
+                if (peerReward > 0) {
+                    totalMinted += peerReward;
+                    ivyToken.mint(leaderUpline, peerReward);
+                    referralRewardsEarned[leaderUpline] += peerReward;
+                    emit PeerBonusPaid(leaderUpline, teamLeader, peerReward);
                 }
             }
-            
-            uint256 reward = (amount * rewardRate) / BASIS_POINTS;
-            if (reward > 0) {
-                totalMinted += reward;
-                ivyToken.mint(currentReferrer, reward);
-                referralRewardsEarned[currentReferrer] += reward;
-                emit ReferralRewardPaid(currentReferrer, user, reward, depth + 1);
-            }
-            
-            currentReferrer = genesisNode.getReferrer(currentReferrer);
-            depth++;
         }
+        // END: Logic complete, no further searching
     }
 
     // ============ View Functions ============

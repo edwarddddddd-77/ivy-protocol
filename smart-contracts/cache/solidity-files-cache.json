@@ -613,8 +613,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyCore.sol": {
-      "lastModificationDate": 1767530340314,
-      "contentHash": "26af94556dbc9984d4db9959056da08b",
+      "lastModificationDate": 1767535720980,
+      "contentHash": "af75d620e246a180018be21543fa1a65",
       "sourceName": "contracts/IvyCore.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1031,8 +1031,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IIvyBond.sol": {
-      "lastModificationDate": 1767527395321,
-      "contentHash": "d3babd324176eb46b5922766cc9aeb50",
+      "lastModificationDate": 1767532448989,
+      "contentHash": "f1739698ff6b81a024bdcc35c5a85e67",
       "sourceName": "contracts/IIvyBond.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1146,6 +1146,93 @@
       "artifacts": [
         "IGenesisNodeReferral",
         "IvyBond"
+      ]
+    },
+    "/home/ubuntu/ivy-protocol/smart-contracts/contracts/DividendPool.sol": {
+      "lastModificationDate": 1767532439753,
+      "contentHash": "348f98079f3ddb8814656ae18e294d81",
+      "sourceName": "contracts/DividendPool.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+        "./IIvyBond.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "DividendPool"
+      ]
+    },
+    "/home/ubuntu/ivy-protocol/smart-contracts/contracts/Photosynthesis.sol": {
+      "lastModificationDate": 1767532506722,
+      "contentHash": "639bdfcaedccb037d9b773425ad5ead9",
+      "sourceName": "contracts/Photosynthesis.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+        "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+        "./IvyToken.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "IDividendPool",
+        "IPriceOraclePhotosynthesis",
+        "IUniswapV2Router",
+        "Photosynthesis"
       ]
     }
   }

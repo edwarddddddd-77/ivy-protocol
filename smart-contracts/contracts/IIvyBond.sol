@@ -38,6 +38,9 @@ interface IIvyBond {
     /// @notice Get all bond token IDs owned by a user
     function getUserBondIds(address user) external view returns (uint256[] memory);
     
+    /// @notice Get total bond power in the system
+    function totalBondPower() external view returns (uint256);
+    
     /// @notice Get contract statistics
     function getStats() external view returns (
         uint256 totalDeposits,
