@@ -23,19 +23,26 @@ interface IGenesisNodeReferral {
  * ║  Asset Type:    ERC721 Bond NFT (NOT mapping-based ledger)    ║
  * ║  Each deposit mints a unique NFT with its own:                ║
  * ║  - Deposit timestamp                                          ║
- * ║  - Principal amount (50% of deposit)                          ║
- * ║  - Bond power (mining weight)                                 ║
+ * ║  - Principal amount (40% RWA - redeemable)                    ║
+ * ║  - Bond power (50% LP - mining weight)                        ║
  * ╚═══════════════════════════════════════════════════════════════╝
  * 
  * ╔═══════════════════════════════════════════════════════════════╗
- * ║                    FUND DISTRIBUTION                          ║
+ * ║                FUND DISTRIBUTION (DONATION MODEL)             ║
  * ╠═══════════════════════════════════════════════════════════════╣
- * ║  Tranche A (40%) → RWA Wallet    (Treasury Bonds)             ║
- * ║  Tranche B (50%) → Liquidity Pool (Mining Principal)          ║
- * ║  Tranche C (10%) → Reserve Pool  (Protocol Reserve)           ║
+ * ║  Tranche A (40%) → RWA Wallet    (User Equity, Redeemable)    ║
+ * ║  Tranche B (50%) → Liquidity Pool (Mining Power, bondPower)   ║
+ * ║  Tranche C (10%) → Reserve Pool  (DONATION - Non-redeemable)  ║
  * ╠═══════════════════════════════════════════════════════════════╣
- * ║  ONLY Tranche B (50%) is recorded as bondData.principal       ║
- * ║  and used for mining power calculation!                       ║
+ * ║  CRITICAL CHANGE (Commander Directive):                       ║
+ * ║  - 10% is DONATION to protocol reserve                        ║
+ * ║  - NOT recorded in user's redeemable principal                ║
+ * ║  - Like a fee that "disappears" from user's perspective       ║
+ * ║                                                               ║
+ * ║  Example: Deposit 10,000 USDT                                 ║
+ * ║  - principal = 4,000 (40% RWA, redeemable)                    ║
+ * ║  - bondPower = 5,000 (50% LP, mining weight)                  ║
+ * ║  - donation  = 1,000 (10% Reserve, non-redeemable)            ║
  * ╚═══════════════════════════════════════════════════════════════╝
  * 
  * ╔═══════════════════════════════════════════════════════════════╗
@@ -56,9 +63,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     // ============ Constants ============
     
     /// @notice Distribution rates in basis points (10000 = 100%)
-    uint256 public constant RWA_RATE = 4000;         // 40% - Tranche A
-    uint256 public constant LIQUIDITY_RATE = 5000;   // 50% - Tranche B (Mining)
-    uint256 public constant RESERVE_RATE = 1000;     // 10% - Tranche C
+    uint256 public constant RWA_RATE = 4000;         // 40% - Tranche A (Redeemable Principal)
+    uint256 public constant LIQUIDITY_RATE = 5000;   // 50% - Tranche B (Mining Power)
+    uint256 public constant DONATION_RATE = 1000;    // 10% - Tranche C (Donation, Non-redeemable)
     uint256 public constant BASIS_POINTS = 10000;
     
     /// @notice Compound bonus rate (110% = 10% bonus)
@@ -80,9 +87,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     IERC20 public ivyToken;
     
     /// @notice Distribution wallets
-    address public rwaWallet;        // 40% - Tranche A
-    address public liquidityPool;    // 50% - Tranche B
-    address public reservePool;      // 10% - Tranche C
+    address public rwaWallet;        // 40% - Tranche A (User Equity)
+    address public liquidityPool;    // 50% - Tranche B (Mining)
+    address public reservePool;      // 10% - Tranche C (Donation)
     
     /// @notice IvyCore contract address (for reward calculations)
     address public ivyCore;
@@ -99,18 +106,24 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     /// @notice Total IVY burned through compound operations
     uint256 public totalCompoundBurned;
     
+    /// @notice Total USDT donated to protocol reserve (10% Tranche C)
+    uint256 public totalDonated;
+    
     /**
      * @notice Bond NFT Data Structure
      * @dev Each NFT represents a unique deposit with its own properties
      * 
-     * Whitepaper Quote: "用户并未直接买到现货，而是拿到了一张 Bond NFT... 
-     *                   这张 NFT 就像一台锁仓矿机..."
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║  CRITICAL: principal = 40% RWA (redeemable)                   ║
+     * ║            bondPower = 50% LP (mining weight)                 ║
+     * ║            10% donation is NOT recorded in user data          ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     struct BondInfo {
         uint256 depositTime;         // Timestamp when bond was created
-        uint256 totalDeposited;      // Total USDT deposited (for display)
-        uint256 principal;           // Mining principal (50% of deposit) - Tranche B
-        uint256 bondPower;           // Mining power (principal + compound bonuses)
+        uint256 totalDeposited;      // Total USDT deposited (for display only)
+        uint256 principal;           // Redeemable principal (40% RWA) - Tranche A
+        uint256 bondPower;           // Mining power (50% LP) - Tranche B
         uint256 compoundedAmount;    // Total amount compounded into this bond
     }
     
@@ -122,6 +135,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     uint256 public totalDeposits;
     uint256 public totalBondPower;
     uint256 public totalBonds;
+    uint256 public totalPrincipal;   // Total redeemable principal (40% of all deposits)
 
     // ============ Events ============
     
@@ -129,8 +143,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         address indexed owner,
         uint256 indexed tokenId,
         uint256 depositAmount,
-        uint256 principal,
-        uint256 bondPower,
+        uint256 principal,       // 40% RWA (redeemable)
+        uint256 bondPower,       // 50% LP (mining)
+        uint256 donation,        // 10% Reserve (non-redeemable)
         uint256 toRWA,
         uint256 toLiquidity,
         uint256 toReserve
@@ -159,9 +174,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /**
      * @dev Initialize the IvyBond NFT contract
-     * @param _rwaWallet Address for RWA wallet (40% - Tranche A)
-     * @param _liquidityPool Address for liquidity pool (50% - Tranche B)
-     * @param _reservePool Address for reserve pool (10% - Tranche C)
+     * @param _rwaWallet Address for RWA wallet (40% - Tranche A, Redeemable)
+     * @param _liquidityPool Address for liquidity pool (50% - Tranche B, Mining)
+     * @param _reservePool Address for reserve pool (10% - Tranche C, Donation)
      */
     constructor(
         address _rwaWallet,
@@ -254,16 +269,20 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * @dev Deposit USDT and mint a Bond NFT
      * 
      * ╔═══════════════════════════════════════════════════════════════╗
-     * ║                 DEPOSIT FLOW (Whitepaper V2.5)                ║
+     * ║           DEPOSIT FLOW (DONATION MODEL - Commander Directive) ║
      * ╠═══════════════════════════════════════════════════════════════╣
      * ║  1. User deposits N USDT                                      ║
      * ║  2. Split funds:                                              ║
-     * ║     - 40% (N * 0.4) → RWA Wallet (Tranche A)                 ║
-     * ║     - 50% (N * 0.5) → Liquidity Pool (Tranche B)             ║
-     * ║     - 10% (N * 0.1) → Reserve Pool (Tranche C)               ║
+     * ║     - 40% (N * 0.4) → RWA Wallet (User Equity, Redeemable)   ║
+     * ║     - 50% (N * 0.5) → Liquidity Pool (Mining Power)          ║
+     * ║     - 10% (N * 0.1) → Reserve Pool (DONATION, Non-redeemable)║
      * ║  3. Mint Bond NFT with:                                       ║
-     * ║     - principal = N * 50% (ONLY Tranche B)                   ║
-     * ║     - bondPower = principal (initial, no bonus)              ║
+     * ║     - principal = N * 40% (RWA, redeemable)                  ║
+     * ║     - bondPower = N * 50% (LP, mining weight)                ║
+     * ║     - 10% is NOT recorded (donation to protocol)             ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  IMPORTANT: 10% is ecosystem insurance fund, donated upon    ║
+     * ║  deposit, non-redeemable. Frontend MUST display this clearly.║
      * ╚═══════════════════════════════════════════════════════════════╝
      * 
      * @param amount Amount of USDT to deposit
@@ -288,39 +307,44 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         // Transfer USDT from user
         paymentToken.safeTransferFrom(user, address(this), amount);
         
-        // Calculate split amounts (Whitepaper V2.5 compliant)
-        uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;           // 40% - Tranche A
-        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS; // 50% - Tranche B
-        uint256 toReserve = (amount * RESERVE_RATE) / BASIS_POINTS;   // 10% - Tranche C
+        // Calculate split amounts (DONATION MODEL)
+        uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;           // 40% - Tranche A (Redeemable)
+        uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS; // 50% - Tranche B (Mining)
+        uint256 toDonation = (amount * DONATION_RATE) / BASIS_POINTS;   // 10% - Tranche C (Donation)
         
         // Execute the 40/50/10 split
         paymentToken.safeTransfer(rwaWallet, toRWA);
         paymentToken.safeTransfer(liquidityPool, toLiquidity);
-        paymentToken.safeTransfer(reservePool, toReserve);
+        paymentToken.safeTransfer(reservePool, toDonation);  // Donation to protocol reserve
         
         // Mint Bond NFT
         uint256 tokenId = _nextTokenId++;
         _safeMint(user, tokenId);
         
         // Record bond data
-        // CRITICAL: principal = 50% of deposit (ONLY Tranche B)
-        uint256 principal = toLiquidity;  // 50% of deposit
-        uint256 bondPower = principal;    // Initial bond power = principal (no bonus)
+        // CRITICAL CHANGE: 
+        // - principal = 40% RWA (redeemable equity)
+        // - bondPower = 50% LP (mining weight)
+        // - 10% donation is NOT recorded in user's redeemable balance
+        uint256 principal = toRWA;      // 40% - Redeemable principal
+        uint256 bondPower = toLiquidity; // 50% - Mining power
         
         bondData[tokenId] = BondInfo({
             depositTime: block.timestamp,
-            totalDeposited: amount,
-            principal: principal,
-            bondPower: bondPower,
+            totalDeposited: amount,      // Display only - actual redeemable is principal
+            principal: principal,        // 40% RWA - what user can redeem
+            bondPower: bondPower,        // 50% LP - mining weight
             compoundedAmount: 0
         });
         
         // Update global stats
         totalDeposits += amount;
         totalBondPower += bondPower;
+        totalPrincipal += principal;
+        totalDonated += toDonation;
         totalBonds++;
         
-        emit BondMinted(user, tokenId, amount, principal, bondPower, toRWA, toLiquidity, toReserve);
+        emit BondMinted(user, tokenId, amount, principal, bondPower, toDonation, toRWA, toLiquidity, toDonation);
         
         return tokenId;
     }
@@ -392,9 +416,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * @dev Get bond information by token ID
      * @param tokenId The Bond NFT token ID
      * @return depositTime Timestamp when bond was created
-     * @return totalDeposited Total USDT deposited
-     * @return principal Mining principal (50% of deposit)
-     * @return bondPower Current mining power
+     * @return totalDeposited Total USDT deposited (display only)
+     * @return principal Redeemable principal (40% RWA)
+     * @return bondPower Current mining power (50% LP + compound bonuses)
      * @return compoundedAmount Total amount compounded
      */
     function getBondData(uint256 tokenId) external view returns (
@@ -432,9 +456,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Get total principal for a user (sum of all their Bond NFTs)
+     * @dev Get total redeemable principal for a user (40% RWA portion)
      * @param user User address
-     * @return Total principal across all owned Bond NFTs
+     * @return Total redeemable principal across all owned Bond NFTs
      */
     function getUserTotalPrincipal(address user) external view returns (uint256) {
         uint256 balance = balanceOf(user);
@@ -449,7 +473,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Get total deposited for a user (sum of all their Bond NFTs)
+     * @dev Get total deposited for a user (for display purposes)
      * @param user User address
      * @return Total deposited across all owned Bond NFTs
      */
@@ -483,19 +507,27 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /**
      * @dev Get user's fund allocation breakdown (for UI display)
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║  IMPORTANT FOR FRONTEND:                                      ║
+     * ║  - redeemablePrincipal = 40% of deposit (RWA, can redeem)    ║
+     * ║  - miningPower = 50% of deposit (LP, for mining)             ║
+     * ║  - donatedAmount = 10% of deposit (Reserve, non-redeemable)  ║
+     * ║                                                               ║
+     * ║  MUST display: "10% 为生态保险金，存入即捐赠，不可赎回"        ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     * 
      * @param user User address
      * @return totalDeposited Total amount deposited by user
-     * @return miningPrincipal Amount allocated to mining (50% - Tranche B)
-     * @return rwaAssets Amount allocated to RWA (40% - Tranche A)
-     * @return reserveAmount Amount allocated to reserve (10% - Tranche C)
-     * @return effectiveMiningPower Total bond power (with compound bonuses)
+     * @return redeemablePrincipal Amount redeemable (40% RWA)
+     * @return miningPower Total bond power (50% LP + compound bonuses)
+     * @return donatedAmount Amount donated to protocol (10% Reserve)
      */
     function getFundAllocation(address user) external view returns (
         uint256 totalDeposited,
-        uint256 miningPrincipal,
-        uint256 rwaAssets,
-        uint256 reserveAmount,
-        uint256 effectiveMiningPower
+        uint256 redeemablePrincipal,
+        uint256 miningPower,
+        uint256 donatedAmount
     ) {
         uint256 balance = balanceOf(user);
         
@@ -503,13 +535,12 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
             uint256 tokenId = tokenOfOwnerByIndex(user, i);
             BondInfo memory bond = bondData[tokenId];
             totalDeposited += bond.totalDeposited;
-            miningPrincipal += bond.principal;
-            effectiveMiningPower += bond.bondPower;
+            redeemablePrincipal += bond.principal;
+            miningPower += bond.bondPower;
         }
         
-        // Calculate RWA and Reserve from total deposited
-        rwaAssets = (totalDeposited * RWA_RATE) / BASIS_POINTS;
-        reserveAmount = (totalDeposited * RESERVE_RATE) / BASIS_POINTS;
+        // Calculate donated amount (10% of total deposited)
+        donatedAmount = (totalDeposited * DONATION_RATE) / BASIS_POINTS;
     }
 
     /**
@@ -524,17 +555,21 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     /**
      * @dev Get contract statistics
      * @return _totalDeposits Total USDT deposited
-     * @return _totalBondPower Total bond power
+     * @return _totalBondPower Total bond power (50% LP + compounds)
      * @return _totalBonds Total number of Bond NFTs minted
+     * @return _totalPrincipal Total redeemable principal (40% RWA)
+     * @return _totalDonated Total donated to protocol reserve (10%)
      * @return _totalCompoundBurned Total IVY burned through compound
      */
     function getStats() external view returns (
         uint256 _totalDeposits,
         uint256 _totalBondPower,
         uint256 _totalBonds,
+        uint256 _totalPrincipal,
+        uint256 _totalDonated,
         uint256 _totalCompoundBurned
     ) {
-        return (totalDeposits, totalBondPower, totalBonds, totalCompoundBurned);
+        return (totalDeposits, totalBondPower, totalBonds, totalPrincipal, totalDonated, totalCompoundBurned);
     }
 
     /**
