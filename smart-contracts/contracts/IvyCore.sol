@@ -139,6 +139,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Last halving checkpoint
     uint256 public lastHalvingMinted;
     
+    /// @notice Number of halvings that have occurred
+    uint256 public halvingCount;
+    
     /// @notice Current IVY price (set by oracle/keeper)
     uint256 public currentPrice = 10**18;  // Default $1.00
     
@@ -566,11 +569,25 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
     /**
      * @dev Check and apply halving if threshold reached
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              DYNAMIC HALVING (Algorithm Book P3-5)            ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Trigger: Every 7,000,000 IVY minted                          ║
+     * ║  Effect: baseDailyEmission *= 0.95 (5% reduction)             ║
+     * ║  Formula: effectiveEmission = base * (0.95)^n                 ║
+     * ║  Where n = halvingCount                                       ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function _checkHalving() internal {
-        if (totalMinted - lastHalvingMinted >= HALVING_THRESHOLD) {
+        // Check if we've crossed a new halving threshold
+        // Use while loop to handle multiple halvings in case of large mints
+        while (totalMinted >= (halvingCount + 1) * HALVING_THRESHOLD) {
+            // Apply 5% decay: emissionFactor *= 0.95
             emissionFactor = (emissionFactor * HALVING_DECAY) / 100;
-            lastHalvingMinted = totalMinted;
+            halvingCount++;
+            lastHalvingMinted = halvingCount * HALVING_THRESHOLD;
+            
             emit HalvingOccurred(emissionFactor, totalMinted);
         }
     }
@@ -688,7 +705,8 @@ contract IvyCore is Ownable, ReentrancyGuard {
         uint256 _finalMultiplier,
         uint256 _totalPoolBondPower,
         uint256 _emissionPerSecond,
-        uint256 _currentDailyEmission
+        uint256 _currentDailyEmission,
+        uint256 _halvingCount
     ) {
         _totalMinted = totalMinted;
         _hardCap = HARD_CAP;
@@ -697,6 +715,24 @@ contract IvyCore is Ownable, ReentrancyGuard {
         _totalPoolBondPower = totalPoolBondPower;
         _emissionPerSecond = EMISSION_PER_SECOND;
         _currentDailyEmission = (BASE_DAILY_EMISSION * emissionFactor * _finalMultiplier) / (10**18 * 10**18);
+        _halvingCount = halvingCount;
+    }
+
+    /**
+     * @dev Get halving info for UI
+     */
+    function getHalvingInfo() external view returns (
+        uint256 _halvingCount,
+        uint256 _emissionFactor,
+        uint256 _nextHalvingAt,
+        uint256 _progressToNextHalving
+    ) {
+        _halvingCount = halvingCount;
+        _emissionFactor = emissionFactor;
+        _nextHalvingAt = (halvingCount + 1) * HALVING_THRESHOLD;
+        
+        uint256 mintedSinceLastHalving = totalMinted - (halvingCount * HALVING_THRESHOLD);
+        _progressToNextHalving = (mintedSinceLastHalving * 10000) / HALVING_THRESHOLD;  // In basis points
     }
 
     /**
