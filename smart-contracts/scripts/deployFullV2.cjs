@@ -40,13 +40,15 @@ async function main() {
   const genesisNodeAddr = await genesisNode.getAddress();
   console.log("GenesisNode deployed to:", genesisNodeAddr);
 
-  // 4. Deploy IvyToken
+  // 4. Deploy IvyToken (with 30M pre-mint to operationsWallet)
   console.log("\n4. Deploying IvyToken...");
+  console.log("   Pre-minting 30,000,000 IVY to Operations Wallet:", operationsWallet);
   const IvyToken = await hre.ethers.getContractFactory("IvyToken");
-  const ivyToken = await IvyToken.deploy();
+  const ivyToken = await IvyToken.deploy(operationsWallet);
   await ivyToken.waitForDeployment();
   const ivyTokenAddr = await ivyToken.getAddress();
   console.log("IvyToken deployed to:", ivyTokenAddr);
+  console.log("   30M IVY pre-minted to:", operationsWallet);
 
   // 5. Deploy IvyCore
   console.log("\n5. Deploying IvyCore...");

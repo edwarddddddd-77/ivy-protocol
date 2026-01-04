@@ -64,8 +64,12 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Emission rate per second: 30,000 / 86400 ≈ 0.3472 IVY/sec
     uint256 public constant EMISSION_PER_SECOND = BASE_DAILY_EMISSION / 86400;
     
-    /// @notice Hard cap for total IVY supply
+    /// @notice Total supply cap (100M IVY)
     uint256 public constant HARD_CAP = 100_000_000 * 10**18;
+    
+    /// @notice Mining allocation cap (70M IVY) - Only this amount can be minted via mining
+    /// @dev The remaining 30M is pre-minted to OperationsWallet at deployment
+    uint256 public constant MINING_CAP = 70_000_000 * 10**18;
     
     /// @notice Halving threshold
     uint256 public constant HALVING_THRESHOLD = 7_000_000 * 10**18;
@@ -397,9 +401,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // ivyReward = timeElapsed * EMISSION_PER_SECOND * emissionFactor * finalMultiplier
         uint256 ivyReward = (timeElapsed * EMISSION_PER_SECOND * emissionFactor * finalMultiplier) / (10**18 * 10**18);
         
-        // Check hard cap
-        if (totalMinted + ivyReward > HARD_CAP) {
-            ivyReward = HARD_CAP - totalMinted;
+        // Check mining cap (70M IVY allocated for mining)
+        if (totalMinted + ivyReward > MINING_CAP) {
+            ivyReward = MINING_CAP > totalMinted ? MINING_CAP - totalMinted : 0;
         }
         
         if (ivyReward > 0) {
@@ -491,6 +495,14 @@ contract IvyCore is Ownable, ReentrancyGuard {
         uint256 pending = info.pendingVested;
         
         require(pending > 0, "Nothing to harvest");
+        
+        // Check if mining cap reached
+        require(totalMinted < MINING_CAP, "Mining cap reached");
+        
+        // Adjust pending if it would exceed mining cap
+        if (totalMinted + pending > MINING_CAP) {
+            pending = MINING_CAP - totalMinted;
+        }
         
         // Move to vesting
         info.pendingVested = 0;
@@ -752,7 +764,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
      */
     function getProtocolStats() external view returns (
         uint256 _totalMinted,
-        uint256 _hardCap,
+        uint256 _miningCap,
         uint256 _emissionFactor,
         uint256 _finalMultiplier,
         uint256 _totalPoolBondPower,
@@ -761,7 +773,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
         uint256 _halvingCount
     ) {
         _totalMinted = totalMinted;
-        _hardCap = HARD_CAP;
+        _miningCap = MINING_CAP;
         _emissionFactor = emissionFactor;
         _finalMultiplier = getFinalMultiplier();
         _totalPoolBondPower = totalPoolBondPower;

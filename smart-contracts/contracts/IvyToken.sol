@@ -40,6 +40,18 @@ contract IvyToken is ERC20, Ownable {
     /// @notice Dead address for burns
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     
+    // ============ Tokenomics Constants ============
+    
+    /// @notice Total supply cap: 100,000,000 IVY
+    uint256 public constant TOTAL_SUPPLY_CAP = 100_000_000 * 10**18;
+    
+    /// @notice Pre-mint allocation for Marketing/Treasury: 30,000,000 IVY
+    /// @dev This is minted at deployment to OperationsWallet, NOT through mining
+    uint256 public constant PRE_MINT_AMOUNT = 30_000_000 * 10**18;
+    
+    /// @notice Mining allocation: 70,000,000 IVY (minted via IvyCore)
+    uint256 public constant MINING_ALLOCATION = 70_000_000 * 10**18;
+    
     // ============ State Variables ============
     
     /// @notice Minter address (IvyCore)
@@ -66,13 +78,34 @@ contract IvyToken is ERC20, Ownable {
     
     // ============ Constructor ============
     
-    constructor() ERC20("Ivy Protocol", "IVY") Ownable(msg.sender) {
+    /**
+     * @dev Initialize IvyToken with pre-mint allocation
+     * @param _operationsWallet Address to receive 30M pre-minted IVY (Marketing/Treasury)
+     * 
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              TOKENOMICS DISTRIBUTION                          ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Total Supply:     100,000,000 IVY (100M)                     ║
+     * ║  Pre-mint:          30,000,000 IVY (30M) → OperationsWallet   ║
+     * ║  Mining:            70,000,000 IVY (70M) → Via IvyCore        ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    constructor(address _operationsWallet) ERC20("Ivy Protocol", "IVY") Ownable(msg.sender) {
+        require(_operationsWallet != address(0), "Invalid operations wallet");
+        
+        // Set operations wallet
+        operationsWallet = _operationsWallet;
+        
         // Owner is excluded from tax by default
         isExcludedFromTax[msg.sender] = true;
         // Dead address excluded (no tax on burns)
         isExcludedFromTax[DEAD_ADDRESS] = true;
-        // Set initial operations wallet to owner
-        operationsWallet = msg.sender;
+        // Operations wallet excluded from tax
+        isExcludedFromTax[_operationsWallet] = true;
+        
+        // Pre-mint 30M IVY to Operations Wallet (Marketing/Treasury)
+        // This allocation is NOT subject to PID algorithm or mining mechanics
+        _mint(_operationsWallet, PRE_MINT_AMOUNT);
     }
     
     // ============ Admin Functions ============
@@ -129,9 +162,12 @@ contract IvyToken is ERC20, Ownable {
     
     /**
      * @dev Mint new tokens (only callable by minter)
+     * @notice Mining is capped at MINING_ALLOCATION (70M IVY)
+     * @notice Total supply is capped at TOTAL_SUPPLY_CAP (100M IVY)
      */
     function mint(address to, uint256 amount) external {
         require(msg.sender == minter, "Not minter");
+        require(totalSupply() + amount <= TOTAL_SUPPLY_CAP, "Exceeds total supply cap");
         _mint(to, amount);
     }
     

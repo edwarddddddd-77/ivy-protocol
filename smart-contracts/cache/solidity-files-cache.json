@@ -613,8 +613,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyCore.sol": {
-      "lastModificationDate": 1767535720980,
-      "contentHash": "af75d620e246a180018be21543fa1a65",
+      "lastModificationDate": 1767539161705,
+      "contentHash": "099c17d11809c965911e33a64146b9b9",
       "sourceName": "contracts/IvyCore.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -691,8 +691,8 @@
       ]
     },
     "/home/ubuntu/ivy-protocol/smart-contracts/contracts/IvyToken.sol": {
-      "lastModificationDate": 1767530371282,
-      "contentHash": "3e60b60868f66f65c670b09e907ca9a5",
+      "lastModificationDate": 1767539194854,
+      "contentHash": "10a01f0133a3a8b29ae437dcd09ce463",
       "sourceName": "contracts/IvyToken.sol",
       "solcConfig": {
         "version": "0.8.20",
