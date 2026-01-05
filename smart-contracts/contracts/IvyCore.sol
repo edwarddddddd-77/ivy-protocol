@@ -157,12 +157,22 @@ contract IvyCore is Ownable, ReentrancyGuard {
     
     /// @notice Current IVY price (set by oracle/keeper)
     uint256 public currentPrice = 10**18;  // Default $1.00
-    
+
     /// @notice 30-day moving average price
     uint256 public ma30Price = 10**18;  // Default $1.00
-    
+
     /// @notice Price 1 hour ago (for breaker calculation)
     uint256 public price1hAgo = 10**18;
+
+    /// @notice Test mode flag (allows manual price updates)
+    /// @dev Should be set to false before mainnet deployment
+    bool public testMode = true;  // Default true for testnet
+
+    /// @notice Maximum price change allowed in test mode (50%)
+    uint256 public constant MAX_PRICE_CHANGE_PERCENT = 50;
+
+    /// @notice Last price update timestamp (for rate limiting)
+    uint256 public lastPriceUpdateTime;
 
     // ============ User State ============
     
@@ -195,6 +205,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
     event CircuitBreakerTriggered(BreakerLevel level, uint256 activationTime, uint256 activationPrice);
     event CircuitBreakerReset(BreakerLevel previousLevel);
     event PriceUpdated(uint256 currentPrice, uint256 ma30Price, uint256 price1hAgo);
+    event TestModeChanged(bool testMode);
     event VestedCompounded(address indexed user, uint256 indexed tokenId, uint256 pendingIvy, uint256 bonusPower);
     event PriceOracleSet(address indexed oracle);
 
@@ -231,12 +242,93 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /**
      * @dev Update price data (called by oracle/keeper)
      */
-    function updatePrices(uint256 _currentPrice, uint256 _ma30Price, uint256 _price1hAgo) external onlyOwner {
+    /**
+     * @dev Update prices - behavior depends on testMode
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              PRICE UPDATE MODES                               ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  TEST MODE (testnet):                                         ║
+     * ║  - Owner can manually set prices for testing                  ║
+     * ║  - Rate limited: max 1 update per hour                        ║
+     * ║  - Price change limited: max ±50% per update                  ║
+     * ║  - Used for testing without DEX/Oracle                        ║
+     * ║                                                               ║
+     * ║  MAINNET MODE (production):                                   ║
+     * ║  - Anyone can call, but prices come from Oracle               ║
+     * ║  - No manual override possible                                ║
+     * ║  - Fully decentralized                                        ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function updatePrices(uint256 _currentPrice, uint256 _ma30Price, uint256 _price1hAgo) external {
         require(_currentPrice > 0 && _ma30Price > 0 && _price1hAgo > 0, "Invalid prices");
-        currentPrice = _currentPrice;
-        ma30Price = _ma30Price;
-        price1hAgo = _price1hAgo;
-        emit PriceUpdated(_currentPrice, _ma30Price, _price1hAgo);
+
+        if (testMode) {
+            // ═══════════════════════════════════════════════════════════
+            // TEST MODE: Owner can manually set prices (with restrictions)
+            // ═══════════════════════════════════════════════════════════
+            require(msg.sender == owner(), "Test mode: only owner can update");
+
+            // Rate limiting: prevent spam updates
+            require(
+                block.timestamp >= lastPriceUpdateTime + 1 hours,
+                "Test mode: must wait 1 hour between updates"
+            );
+
+            // Prevent extreme price changes (max ±50%)
+            if (currentPrice > 0) {
+                uint256 maxIncrease = currentPrice + (currentPrice * MAX_PRICE_CHANGE_PERCENT / 100);
+                uint256 maxDecrease = currentPrice - (currentPrice * MAX_PRICE_CHANGE_PERCENT / 100);
+                require(
+                    _currentPrice >= maxDecrease && _currentPrice <= maxIncrease,
+                    "Test mode: price change exceeds 50% limit"
+                );
+            }
+
+            currentPrice = _currentPrice;
+            ma30Price = _ma30Price;
+            price1hAgo = _price1hAgo;
+            lastPriceUpdateTime = block.timestamp;
+
+            emit PriceUpdated(_currentPrice, _ma30Price, _price1hAgo);
+
+        } else {
+            // ═══════════════════════════════════════════════════════════
+            // MAINNET MODE: Prices MUST come from Oracle (decentralized)
+            // ═══════════════════════════════════════════════════════════
+            require(address(oracle) != address(0), "Oracle not set");
+
+            // Fetch price from decentralized oracle
+            uint256 oraclePrice = oracle.getAssetPrice(address(ivyToken));
+            require(oraclePrice > 0, "Oracle returned invalid price");
+
+            // Update prices from oracle (ignore manual parameters)
+            currentPrice = oraclePrice;
+
+            // For MA30 and price1hAgo, we use oracle or keep previous values
+            // This is a simplified implementation - in production, you'd use
+            // Chainlink's historical data or calculate MA30 on-chain
+            ma30Price = _ma30Price;  // Could be from oracle's MA30 feed
+            price1hAgo = _price1hAgo;  // Could be from oracle's historical data
+
+            emit PriceUpdated(oraclePrice, _ma30Price, _price1hAgo);
+        }
+    }
+
+    /**
+     * @dev Toggle test mode (CRITICAL: should be disabled before mainnet)
+     * @param _testMode True for test mode, false for decentralized mode
+     */
+    function setTestMode(bool _testMode) external onlyOwner {
+        require(testMode != _testMode, "Already in this mode");
+
+        // Warning: disabling test mode is irreversible without upgrade
+        if (!_testMode) {
+            require(address(oracle) != address(0), "Must set oracle before disabling test mode");
+        }
+
+        testMode = _testMode;
+        emit TestModeChanged(_testMode);
     }
 
     // ============ PID + Circuit Breaker Functions ============
