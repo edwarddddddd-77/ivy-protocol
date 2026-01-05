@@ -511,38 +511,66 @@ contract IvyCore is Ownable, ReentrancyGuard {
     function harvest() external nonReentrant {
         address user = msg.sender;
         _syncUser(user);
-        
+
         UserInfo storage info = userInfo[user];
         uint256 pending = info.pendingVested;
-        
+
         require(pending > 0, "Nothing to harvest");
-        
+
         // Check if mining cap reached
         require(totalMinted < MINING_CAP, "Mining cap reached");
-        
-        // Adjust pending if it would exceed mining cap
-        if (totalMinted + pending > MINING_CAP) {
-            pending = MINING_CAP - totalMinted;
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  MINING CAP ENFORCEMENT INCLUDING REFERRAL REWARDS            ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Total referral rate:                                         ║
+        // ║  - L1 (10%) + L2 (5%) + Team (2%) + Peer (0.5%) = 17.5%      ║
+        // ║                                                               ║
+        // ║  To ensure 70M cap includes both user and referral rewards:   ║
+        // ║  1. Calculate total rewards needed (user + 17.5% referral)   ║
+        // ║  2. If exceeds cap, scale down proportionally                ║
+        // ║  3. This ensures referrals don't "steal" from mining cap     ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // Calculate total referral rate (17.5% = 1750 basis points)
+        uint256 TOTAL_REFERRAL_RATE = L1_RATE + L2_RATE + INFINITE_RATE + PEER_BONUS_RATE;
+
+        // Estimate referral rewards (17.5% of pending)
+        uint256 estimatedReferralRewards = (pending * TOTAL_REFERRAL_RATE) / BASIS_POINTS;
+
+        // Calculate total rewards needed (user reward + referral rewards)
+        uint256 totalRewardsNeeded = pending + estimatedReferralRewards;
+
+        // Adjust pending if total rewards would exceed mining cap
+        if (totalMinted + totalRewardsNeeded > MINING_CAP) {
+            // Calculate available space in mining cap
+            uint256 availableSpace = MINING_CAP - totalMinted;
+
+            // Scale down pending proportionally
+            // Formula: pending = availableSpace / (1 + 17.5%)
+            //        = availableSpace * 10000 / (10000 + 1750)
+            //        = availableSpace * 10000 / 11750
+            pending = (availableSpace * BASIS_POINTS) / (BASIS_POINTS + TOTAL_REFERRAL_RATE);
         }
-        
+
         // Move to vesting
         info.pendingVested = 0;
         info.totalVested += pending;
-        
+
         if (info.vestingStartTime == 0) {
             info.vestingStartTime = block.timestamp;
         }
-        
+
         // Mint IVY to this contract for vesting
         totalMinted += pending;
         ivyToken.mint(address(this), pending);
-        
+
         // Check for halving
         _checkHalving();
-        
-        // Distribute referral rewards
+
+        // Distribute referral rewards (will update totalMinted further)
         _distributeReferralRewards(user, pending);
-        
+
         emit RewardsHarvested(user, pending);
         emit VestingStarted(user, pending, block.timestamp);
     }
@@ -580,10 +608,13 @@ contract IvyCore is Ownable, ReentrancyGuard {
      * @dev Instant cash out - get IVY immediately but 50% penalty
      *
      * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              21M GOLDEN PIVOT PENALTY ROUTING                 ║
+     * ║              INSTANT CASH-OUT PENALTY (ALWAYS BURN)           ║
      * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  Before 21M: 50% penalty → Burned (deflationary)              ║
-     * ║  After 21M:  50% penalty → DividendPool (rewards holders)     ║
+     * ║  50% penalty → Burned (deflationary pressure)                 ║
+     * ║                                                               ║
+     * ║  Note: Penalty burning is independent of 21M Golden Pivot.    ║
+     * ║  This is a punishment mechanism for impatient users who       ║
+     * ║  bypass the 30-day vesting period, not regular deflation.     ║
      * ╚═══════════════════════════════════════════════════════════════╝
      */
     function instantCashOut() external nonReentrant {
@@ -604,17 +635,10 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // Transfer to user
         ivyToken.transfer(user, received);
 
-        // Handle penalty based on Golden Pivot
+        // Burn penalty (always, regardless of Golden Pivot status)
+        // Penalty burning is a punishment mechanism, separate from 21M deflation goal
         if (penalty > 0) {
-            if (ivyToken.totalSupply() <= ivyToken.GOLDEN_PIVOT()) {
-                // Post-21M: Route penalty to DividendPool (reward long-term holders)
-                require(address(dividendPool) != address(0), "DividendPool not set");
-                ivyToken.transfer(address(dividendPool), penalty);
-                dividendPool.depositDividend(penalty);
-            } else {
-                // Pre-21M: Burn penalty (deflationary pressure)
-                ivyToken.transfer(address(0xdead), penalty);
-            }
+            ivyToken.transfer(address(0xdead), penalty);
         }
 
         emit InstantCashOut(user, received, penalty);
