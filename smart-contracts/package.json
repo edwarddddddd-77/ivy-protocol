@@ -3,7 +3,13 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "hardhat test",
+    "keeper": "node scripts/price-keeper.js",
+    "keeper:pm2": "pm2 start ecosystem.config.js",
+    "keeper:logs": "pm2 logs ivy-price-keeper",
+    "keeper:stop": "pm2 stop ivy-price-keeper",
+    "keeper:restart": "pm2 restart ivy-price-keeper",
+    "keeper:status": "pm2 status"
   },
   "keywords": [],
   "author": "",
