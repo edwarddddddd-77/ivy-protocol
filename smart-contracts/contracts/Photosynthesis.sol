@@ -248,20 +248,35 @@ contract Photosynthesis is Ownable, ReentrancyGuard {
             }
         }
         
-        // Determine market condition
-        bool isBullMarket = currentPrice > ma30Price;
-        
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║              21M GOLDEN PIVOT CHECK                           ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  If total supply ≤ 21M: ALL yields → Dividends               ║
+        // ║  If total supply > 21M: Use market condition logic            ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
         totalProcessed += amount;
-        
-        if (isBullMarket) {
-            // Bull Market: Buyback & Burn
-            _executeBuybackAndBurn(amount);
-        } else {
-            // Bear Market: Route to Dividend Pool
+
+        bool reachedGoldenPivot = ivyToken.totalSupply() <= ivyToken.GOLDEN_PIVOT();
+
+        if (reachedGoldenPivot) {
+            // Post-21M: ALL yields go to dividends (no more buyback & burn)
             _routeToDividendPool(amount);
+            emit RwaYieldProcessed(amount, false, currentPrice, ma30Price);
+        } else {
+            // Pre-21M: Use market condition logic
+            bool isBullMarket = currentPrice > ma30Price;
+
+            if (isBullMarket) {
+                // Bull Market: Buyback & Burn
+                _executeBuybackAndBurn(amount);
+            } else {
+                // Bear Market: Route to Dividend Pool
+                _routeToDividendPool(amount);
+            }
+
+            emit RwaYieldProcessed(amount, isBullMarket, currentPrice, ma30Price);
         }
-        
-        emit RwaYieldProcessed(amount, isBullMarket, currentPrice, ma30Price);
     }
     
     /**

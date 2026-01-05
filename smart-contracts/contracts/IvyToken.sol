@@ -53,22 +53,29 @@ contract IvyToken is ERC20, Ownable {
     uint256 public constant MINING_ALLOCATION = 70_000_000 * 10**18;
     
     // ============ State Variables ============
-    
+
     /// @notice Minter address (IvyCore)
     address public minter;
-    
+
     /// @notice Operations wallet for tax collection
     address public operationsWallet;
-    
+
     /// @notice Addresses excluded from tax (whitelist)
     mapping(address => bool) public isExcludedFromTax;
-    
+
     /// @notice Total IVY burned via tax
     uint256 public totalBurned;
-    
+
     /// @notice Total IVY sent to operations via tax
     uint256 public totalOpsCollected;
-    
+
+    /// @notice 21M Golden Pivot - Tribute to Bitcoin
+    /// @dev After total supply reaches 21M, stop all burns and switch to dividend mode
+    uint256 public constant GOLDEN_PIVOT = 21_000_000 * 10**18;
+
+    /// @notice Track if pre-mint has been distributed
+    bool public preMintDistributed;
+
     // ============ Events ============
     
     event TaxCollected(address indexed from, address indexed to, uint256 burnAmount, uint256 opsAmount);
@@ -157,7 +164,58 @@ contract IvyToken is ERC20, Ownable {
             emit ExcludedFromTax(accounts[i], excluded);
         }
     }
-    
+
+    /**
+     * @dev Distribute 30M pre-mint to designated wallets (ONE-TIME ONLY)
+     * @param daoWallet DAO treasury wallet (receives 15M IVY = 15%)
+     * @param airdropWallet Airdrop pool wallet (receives 10M IVY = 10%)
+     * @param liquidityWallet Liquidity provision wallet (receives 5M IVY = 5%)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              30M PRE-MINT DISTRIBUTION                        ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Total: 30,000,000 IVY (30% of total supply)                  ║
+     * ║  - 15M (15%) → DAO Treasury                                   ║
+     * ║  - 10M (10%) → Airdrop Pool                                   ║
+     * ║  -  5M (5%)  → Initial Liquidity                              ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     *
+     * @notice Can only be called ONCE by owner
+     * @notice All three wallets will be auto-excluded from tax
+     */
+    function distributePreMint(
+        address daoWallet,
+        address airdropWallet,
+        address liquidityWallet
+    ) external onlyOwner {
+        require(!preMintDistributed, "Pre-mint already distributed");
+        require(daoWallet != address(0), "Invalid DAO wallet");
+        require(airdropWallet != address(0), "Invalid airdrop wallet");
+        require(liquidityWallet != address(0), "Invalid liquidity wallet");
+
+        // Mark as distributed to prevent re-execution
+        preMintDistributed = true;
+
+        // Calculate amounts
+        uint256 daoAmount = 15_000_000 * 10**18;       // 15M IVY
+        uint256 airdropAmount = 10_000_000 * 10**18;   // 10M IVY
+        uint256 liquidityAmount = 5_000_000 * 10**18;  // 5M IVY
+
+        // Auto-exclude all wallets from tax
+        isExcludedFromTax[daoWallet] = true;
+        isExcludedFromTax[airdropWallet] = true;
+        isExcludedFromTax[liquidityWallet] = true;
+
+        // Transfer from operationsWallet to designated wallets
+        _transfer(operationsWallet, daoWallet, daoAmount);
+        _transfer(operationsWallet, airdropWallet, airdropAmount);
+        _transfer(operationsWallet, liquidityWallet, liquidityAmount);
+
+        emit ExcludedFromTax(daoWallet, true);
+        emit ExcludedFromTax(airdropWallet, true);
+        emit ExcludedFromTax(liquidityWallet, true);
+    }
+
     // ============ Minting Functions ============
     
     /**
@@ -214,23 +272,40 @@ contract IvyToken is ERC20, Ownable {
         uint256 burnAmount = (amount * BURN_RATE) / BASIS_POINTS;     // 0.1%
         uint256 opsAmount = (amount * OPS_RATE) / BASIS_POINTS;       // 0.1%
         uint256 transferAmount = amount - burnAmount - opsAmount;     // 99.8%
-        
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║              21M GOLDEN PIVOT (Tribute to Bitcoin)            ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  When total supply reaches 21M:                               ║
+        // ║  - STOP all burns (preserve minimum supply)                   ║
+        // ║  - 0.1% burn tax → redirected to operations wallet            ║
+        // ║  - All future yields → dividends to Bond NFT holders          ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
         // Execute transfers
-        // 1. Send burn amount to dead address
+        // 1. Handle burn amount (check Golden Pivot)
         if (burnAmount > 0) {
-            super._update(from, DEAD_ADDRESS, burnAmount);
-            totalBurned += burnAmount;
+            if (totalSupply() <= GOLDEN_PIVOT) {
+                // Post-21M: Stop burns, redirect to operations wallet
+                super._update(from, operationsWallet, burnAmount);
+                totalOpsCollected += burnAmount;
+                burnAmount = 0;  // Mark as not burned for event
+            } else {
+                // Pre-21M: Normal burn to dead address
+                super._update(from, DEAD_ADDRESS, burnAmount);
+                totalBurned += burnAmount;
+            }
         }
-        
+
         // 2. Send ops amount to operations wallet
         if (opsAmount > 0 && operationsWallet != address(0)) {
             super._update(from, operationsWallet, opsAmount);
             totalOpsCollected += opsAmount;
         }
-        
+
         // 3. Send remaining to recipient
         super._update(from, to, transferAmount);
-        
+
         emit TaxCollected(from, to, burnAmount, opsAmount);
     }
     

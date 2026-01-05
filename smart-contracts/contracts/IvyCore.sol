@@ -8,6 +8,11 @@ import "./IGenesisNode.sol";
 import "./IIvyBond.sol";
 import "./IPriceOracle.sol";
 
+/// @notice DividendPool Interface
+interface IDividendPool {
+    function depositDividend(uint256 amount) external;
+}
+
 /**
  * @title IvyCore
  * @dev Core Mining & Reward Distribution Contract for Ivy Protocol
@@ -42,11 +47,12 @@ import "./IPriceOracle.sol";
 contract IvyCore is Ownable, ReentrancyGuard {
     
     // ============ Interfaces ============
-    
+
     IGenesisNode public genesisNode;
     IIvyBond public ivyBond;
     IvyToken public ivyToken;
     IPriceOracle public oracle;
+    IDividendPool public dividendPool;
     
     // ============ Basic Constants ============
     
@@ -215,6 +221,11 @@ contract IvyCore is Ownable, ReentrancyGuard {
         require(_oracle != address(0), "Invalid address");
         oracle = IPriceOracle(_oracle);
         emit PriceOracleSet(_oracle);
+    }
+
+    function setDividendPool(address _dividendPool) external onlyOwner {
+        require(_dividendPool != address(0), "Invalid address");
+        dividendPool = IDividendPool(_dividendPool);
     }
     
     /**
@@ -566,29 +577,46 @@ contract IvyCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Instant cash out - get IVY immediately but 50% is burned
+     * @dev Instant cash out - get IVY immediately but 50% penalty
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              21M GOLDEN PIVOT PENALTY ROUTING                 ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Before 21M: 50% penalty → Burned (deflationary)              ║
+     * ║  After 21M:  50% penalty → DividendPool (rewards holders)     ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function instantCashOut() external nonReentrant {
         address user = msg.sender;
         UserInfo storage info = userInfo[user];
-        
+
         require(info.totalVested > info.totalClaimed, "Nothing to cash out");
-        
+
         uint256 remaining = info.totalVested - info.totalClaimed;
-        
+
         // Calculate penalty and received amount
         uint256 penalty = (remaining * INSTANT_CASH_PENALTY) / BASIS_POINTS;
         uint256 received = remaining - penalty;
-        
+
         // Mark as fully claimed
         info.totalClaimed = info.totalVested;
-        
+
         // Transfer to user
         ivyToken.transfer(user, received);
-        
-        // Burn penalty (transfer to dead address)
-        ivyToken.transfer(address(0xdead), penalty);
-        
+
+        // Handle penalty based on Golden Pivot
+        if (penalty > 0) {
+            if (ivyToken.totalSupply() <= ivyToken.GOLDEN_PIVOT()) {
+                // Post-21M: Route penalty to DividendPool (reward long-term holders)
+                require(address(dividendPool) != address(0), "DividendPool not set");
+                ivyToken.transfer(address(dividendPool), penalty);
+                dividendPool.depositDividend(penalty);
+            } else {
+                // Pre-21M: Burn penalty (deflationary pressure)
+                ivyToken.transfer(address(0xdead), penalty);
+            }
+        }
+
         emit InstantCashOut(user, received, penalty);
     }
 

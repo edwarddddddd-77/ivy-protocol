@@ -74,7 +74,10 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /// @notice Minimum deposit amount (10 USDT)
     uint256 public constant MIN_DEPOSIT = 10 * 10**18;
-    
+
+    /// @notice RWA redemption lock period (180 days)
+    uint256 public constant RWA_LOCK_PERIOD = 180 days;
+
     /// @notice Dead address for burning IVY tokens during compound
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
@@ -176,6 +179,13 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         address indexed user,
         uint256 addedPower,
         uint256 newBondPower
+    );
+
+    /// @notice Event emitted when user redeems RWA principal
+    event RwaRedeemed(
+        uint256 indexed tokenId,
+        address indexed user,
+        uint256 principalRedeemed
     );
 
     // ============ Constructor ============
@@ -416,6 +426,48 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         totalCompoundBurned += amount;
         
         emit BondCompounded(tokenId, user, amount, addedBondPower, bond.bondPower);
+    }
+
+    /**
+     * @dev Redeem RWA principal (40% Tranche A only)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              RWA REDEMPTION MECHANISM                         ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Lock Period:   180 days from deposit                         ║
+     * ║  Redeemable:    40% RWA principal ONLY (no interest)          ║
+     * ║  Interest Flow: RWA yields → Photosynthesis → Buyback/Burn    ║
+     * ║                                                               ║
+     * ║  Example: Deposited 1000 USDT                                 ║
+     * ║  - 400U → RWA wallet (redeemable after 180 days)              ║
+     * ║  - 500U → LP (NOT redeemable, converted to bond power)        ║
+     * ║  - 100U → Reserve (NOT redeemable, donation)                  ║
+     * ║  - Interest earned by 400U → NOT returned to user             ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     *
+     * @param tokenId Bond NFT token ID
+     */
+    function redeem(uint256 tokenId) external nonReentrant {
+        require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
+
+        BondInfo storage bond = bondData[tokenId];
+        require(bond.principal > 0, "No principal to redeem");
+
+        // Check 180-day lock period
+        require(
+            block.timestamp >= bond.depositTime + RWA_LOCK_PERIOD,
+            "Still in lock period"
+        );
+
+        uint256 redeemAmount = bond.principal;
+
+        // Mark as redeemed
+        bond.principal = 0;
+
+        // Transfer from RWA wallet to user
+        paymentToken.safeTransferFrom(rwaWallet, msg.sender, redeemAmount);
+
+        emit RwaRedeemed(tokenId, msg.sender, redeemAmount);
     }
 
     // ============ View Functions ============
