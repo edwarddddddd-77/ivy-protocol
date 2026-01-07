@@ -2,6 +2,7 @@ import { useReadContract, useWriteContract, useAccount } from "wagmi";
 import addresses from "../contracts/addresses.json";
 import abis from "../contracts/abis.json";
 import { formatEther } from "viem";
+import { getSmartRefreshInterval } from "@/config/refreshIntervals";
 
 export function useIvyContract() {
   const { address } = useAccount();
@@ -13,7 +14,7 @@ export function useIvyContract() {
     abi: abis.IvyCore,
     functionName: "currentDailyEmission",
     query: {
-      refetchInterval: 5000,
+      refetchInterval: getSmartRefreshInterval('PROTOCOL_STATS'),
     }
   });
 
@@ -23,7 +24,7 @@ export function useIvyContract() {
     abi: abis.IvyCore,
     functionName: "getProtocolStats",
     query: {
-      refetchInterval: 5000,
+      refetchInterval: getSmartRefreshInterval('PROTOCOL_STATS'),
     }
   });
 
@@ -33,7 +34,7 @@ export function useIvyContract() {
     abi: abis.GenesisNode,
     functionName: "totalSupply",
     query: {
-      refetchInterval: 10000,
+      refetchInterval: getSmartRefreshInterval('NODE_SUPPLY'),
     }
   });
 
@@ -45,7 +46,7 @@ export function useIvyContract() {
     args: [address || "0x0000000000000000000000000000000000000000"],
     query: {
       enabled: !!address,
-      refetchInterval: 2000,
+      refetchInterval: getSmartRefreshInterval('USER_BALANCE'),
     }
   });
 
@@ -57,7 +58,7 @@ export function useIvyContract() {
     args: [address || "0x0000000000000000000000000000000000000000"],
     query: {
       enabled: !!address,
-      refetchInterval: 5000,
+      refetchInterval: getSmartRefreshInterval('MINING_STATS'),
     }
   });
 
@@ -69,11 +70,11 @@ export function useIvyContract() {
     args: [address || "0x0000000000000000000000000000000000000000"],
     query: {
       enabled: !!address,
-      refetchInterval: 5000,
+      refetchInterval: getSmartRefreshInterval('VESTING_INFO'),
     }
   });
 
-  // Read: Pending IVY (real-time)
+  // Read: Pending IVY (real-time with smart intervals)
   const { data: pendingIvy } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
     abi: abis.IvyCore,
@@ -81,7 +82,7 @@ export function useIvyContract() {
     args: [address || "0x0000000000000000000000000000000000000000"],
     query: {
       enabled: !!address,
-      refetchInterval: 3000,  // Update every 3 seconds for real-time feel
+      refetchInterval: getSmartRefreshInterval('PENDING_IVY'),
     }
   });
 
