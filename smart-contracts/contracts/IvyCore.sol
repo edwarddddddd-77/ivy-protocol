@@ -174,6 +174,10 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Last price update timestamp (for rate limiting)
     uint256 public lastPriceUpdateTime;
 
+    /// @notice Permanent flag to prevent re-enabling test mode
+    /// @dev Once set to true, test mode can NEVER be re-enabled (one-way switch)
+    bool public testModeDisabledPermanently;
+
     // ============ User State ============
     
     struct UserInfo {
@@ -206,6 +210,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
     event CircuitBreakerReset(BreakerLevel previousLevel);
     event PriceUpdated(uint256 currentPrice, uint256 ma30Price, uint256 price1hAgo);
     event TestModeChanged(bool testMode);
+    event TestModePermanentlyDisabled();
     event VestedCompounded(address indexed user, uint256 indexed tokenId, uint256 pendingIvy, uint256 bonusPower);
     event PriceOracleSet(address indexed oracle);
 
@@ -316,19 +321,40 @@ contract IvyCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Toggle test mode (CRITICAL: should be disabled before mainnet)
-     * @param _testMode True for test mode, false for decentralized mode
+     * @notice Set test mode (manual price updates vs oracle-only)
+     * @param _testMode True for test mode, false for decentralized mode (IRREVERSIBLE)
+     * @dev Once test mode is disabled, it can NEVER be re-enabled (one-way switch)
      */
     function setTestMode(bool _testMode) external onlyOwner {
         require(testMode != _testMode, "Already in this mode");
 
-        // Warning: disabling test mode is irreversible without upgrade
         if (!_testMode) {
+            // ===== Disabling Test Mode (Going to Mainnet) =====
             require(address(oracle) != address(0), "Must set oracle before disabling test mode");
-        }
 
-        testMode = _testMode;
-        emit TestModeChanged(_testMode);
+            // Set permanent flag (irreversible)
+            testModeDisabledPermanently = true;
+            testMode = false;
+
+            emit TestModeChanged(false);
+            emit TestModePermanentlyDisabled();
+
+        } else {
+            // ===== Attempting to Re-enable Test Mode =====
+            // Check permanent flag (prevent re-enabling)
+            require(!testModeDisabledPermanently, "Test mode permanently disabled");
+
+            testMode = true;
+            emit TestModeChanged(true);
+        }
+    }
+
+    /**
+     * @notice Check if the protocol is in fully decentralized mode (mainnet)
+     * @return True if test mode is permanently disabled (fully decentralized)
+     */
+    function isFullyDecentralized() external view returns (bool) {
+        return testModeDisabledPermanently;
     }
 
     // ============ PID + Circuit Breaker Functions ============
