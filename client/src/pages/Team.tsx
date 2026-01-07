@@ -24,7 +24,7 @@ export default function Team() {
   const handleCopyReferral = () => {
     if (referralLink) {
       navigator.clipboard.writeText(referralLink);
-      toast.success("Referral link copied!");
+      toast.success(t('team.link_copied'));
       setCopiedIndex(-1);
       setTimeout(() => setCopiedIndex(null), 2000);
     }
@@ -33,7 +33,7 @@ export default function Team() {
   // Copy address
   const handleCopyAddress = (addr: string, index: number) => {
     navigator.clipboard.writeText(addr);
-    toast.success("Address copied!");
+    toast.success(t('team.address_copied'));
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
@@ -75,11 +75,11 @@ export default function Team() {
             <div>
               <h1 className="text-4xl md:text-5xl font-display font-bold uppercase tracking-tight">
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400">
-                  Team Performance
+                  {t('team.title')}
                 </span>
               </h1>
               <p className="text-slate-400 font-mono text-sm mt-1">
-                Track your referral network and earnings
+                {t('team.subtitle')}
               </p>
             </div>
           </div>
@@ -90,7 +90,7 @@ export default function Team() {
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex-1 min-w-[200px]">
                   <p className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-1">
-                    Your Referral Link
+                    {t('team.referral_link')}
                   </p>
                   <p className="text-sm font-mono text-[#39FF14] break-all">
                     {referralLink || `${window.location.origin}/?ref=${address}`}
@@ -101,9 +101,9 @@ export default function Team() {
                   className="bg-[#39FF14] text-black hover:bg-[#39FF14]/80 font-mono text-sm gap-2"
                 >
                   {copiedIndex === -1 ? (
-                    <><Check className="w-4 h-4" /> Copied!</>
+                    <><Check className="w-4 h-4" /> {t('team.copied')}</>
                   ) : (
-                    <><Copy className="w-4 h-4" /> Copy Link</>
+                    <><Copy className="w-4 h-4" /> {t('team.copy_link')}</>
                   )}
                 </Button>
               </div>
@@ -116,7 +116,7 @@ export default function Team() {
           {/* Direct Referrals */}
           <StatsCard
             icon={<UserPlus className="w-5 h-5" />}
-            label="Direct Referrals"
+            label={t('team.direct_referrals')}
             value={summary?.directReferralCount.toString() || "0"}
             color="green"
             delay={0.1}
@@ -125,9 +125,9 @@ export default function Team() {
           {/* Total Team Size */}
           <StatsCard
             icon={<Users className="w-5 h-5" />}
-            label="Total Team Size"
+            label={t('team.total_team')}
             value={summary?.totalTeamSize.toString() || "0"}
-            subValue="(up to 20 levels)"
+            subValue={t('team.up_to_levels')}
             color="blue"
             delay={0.2}
           />
@@ -135,7 +135,7 @@ export default function Team() {
           {/* Total Rewards */}
           <StatsCard
             icon={<Award className="w-5 h-5" />}
-            label="Total Rewards"
+            label={t('team.total_rewards')}
             value={`${formatNumber(summary?.totalReferralRewards || "0")} IVY`}
             color="purple"
             delay={0.3}
@@ -144,9 +144,9 @@ export default function Team() {
           {/* Genesis Node Status */}
           <StatsCard
             icon={<Zap className="w-5 h-5" />}
-            label="Genesis Node"
-            value={summary?.hasGenesisNode ? "✅ Active" : "❌ Inactive"}
-            subValue={summary?.hasGenesisNode ? "+10% Boost" : ""}
+            label={t('team.genesis_node')}
+            value={summary?.hasGenesisNode ? `✅ ${t('team.active')}` : `❌ ${t('team.inactive')}`}
+            subValue={summary?.hasGenesisNode ? `+10% ${t('team.boost')}` : ""}
             color={summary?.hasGenesisNode ? "green" : "gray"}
             delay={0.4}
           />
@@ -161,16 +161,16 @@ export default function Team() {
           <Card className="bg-slate-900/50 border-slate-800 backdrop-blur-sm p-6">
             <h2 className="text-xl font-display font-bold uppercase tracking-wide mb-4 flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-[#39FF14]" />
-              Team Metrics
+              {t('team.team_metrics')}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <MetricItem
-                label="Total Bond Power"
+                label={t('team.total_bond_power')}
                 value={`${formatNumber(teamStats?.totalBondPower || "0")} USDT`}
                 icon={<Target className="w-4 h-4" />}
               />
               <MetricItem
-                label="Active Members"
+                label={t('team.active_members')}
                 value={`${teamStats?.activeMembers || 0} / ${teamStats?.totalMembers || 0}`}
                 icon={<Activity className="w-4 h-4" />}
                 percentage={
@@ -178,9 +178,10 @@ export default function Team() {
                     ? ((teamStats.activeMembers / teamStats.totalMembers) * 100).toFixed(1)
                     : "0"
                 }
+                activeText={t('team.active_rate')}
               />
               <MetricItem
-                label="Avg Bond Power"
+                label={t('team.avg_bond_power')}
                 value={`${formatNumber(performance?.avgBondPower || "0")} USDT`}
                 icon={<TrendingUp className="w-4 h-4" />}
               />
@@ -197,7 +198,7 @@ export default function Team() {
           <Card className="bg-slate-900/50 border-slate-800 backdrop-blur-sm p-6">
             <h2 className="text-xl font-display font-bold uppercase tracking-wide mb-4 flex items-center gap-2">
               <UserPlus className="w-5 h-5 text-[#39FF14]" />
-              Direct Referrals ({directReferrals?.addresses.length || 0})
+              {t('team.direct_list')} ({directReferrals?.addresses.length || 0})
             </h2>
 
             {directReferrals && directReferrals.addresses.length > 0 ? (
@@ -206,16 +207,16 @@ export default function Team() {
                   <thead>
                     <tr className="border-b border-slate-800">
                       <th className="text-left py-3 px-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-                        Member
+                        {t('team.member')}
                       </th>
                       <th className="text-right py-3 px-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-                        Bond Power
+                        {t('team.bond_power')}
                       </th>
                       <th className="text-right py-3 px-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-                        My Rewards
+                        {t('team.my_rewards')}
                       </th>
                       <th className="text-center py-3 px-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-                        Status
+                        {t('team.status')}
                       </th>
                     </tr>
                   </thead>
@@ -254,7 +255,7 @@ export default function Team() {
                                 : 'bg-slate-800 text-slate-500'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[#39FF14]' : 'bg-slate-500'}`}></span>
-                              {isActive ? 'Active' : 'Inactive'}
+                              {isActive ? t('team.active') : t('team.inactive')}
                             </span>
                           </td>
                         </tr>
@@ -266,8 +267,8 @@ export default function Team() {
             ) : (
               <div className="text-center py-12 text-slate-500 font-mono text-sm">
                 <UserPlus className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No direct referrals yet</p>
-                <p className="text-xs mt-2">Share your referral link to get started</p>
+                <p>{t('team.no_referrals')}</p>
+                <p className="text-xs mt-2">{t('team.share_link')}</p>
               </div>
             )}
           </Card>
@@ -285,12 +286,12 @@ export default function Team() {
                 <ArrowUpRight className="w-5 h-5 text-[#39FF14]" />
               </div>
               <div className="space-y-2">
-                <h3 className="font-display font-bold text-lg">Maximize Your Earnings</h3>
+                <h3 className="font-display font-bold text-lg">{t('team.maximize_earnings')}</h3>
                 <ul className="space-y-1 text-sm text-slate-300 font-mono">
-                  <li>• L1 Direct Referrals: <span className="text-[#39FF14]">10%</span> of their rewards</li>
-                  <li>• L2 Indirect Referrals: <span className="text-[#39FF14]">5%</span> of their rewards</li>
-                  <li>• L3+ Infinite Team (GenesisNode): <span className="text-[#39FF14]">2%</span> from all downlines</li>
-                  <li>• Peer Level Bonus: <span className="text-[#39FF14]">0.5%</span> when downline also holds GenesisNode</li>
+                  <li>• {t('team.reward_l1')}: <span className="text-[#39FF14]">10%</span> {t('team.reward_l1_desc')}</li>
+                  <li>• {t('team.reward_l2')}: <span className="text-[#39FF14]">5%</span> {t('team.reward_l2_desc')}</li>
+                  <li>• {t('team.reward_l3')}: <span className="text-[#39FF14]">2%</span> {t('team.reward_l3_desc')}</li>
+                  <li>• {t('team.reward_peer')}: <span className="text-[#39FF14]">0.5%</span> {t('team.reward_peer_desc')}</li>
                 </ul>
               </div>
             </div>
@@ -364,12 +365,14 @@ function MetricItem({
   label,
   value,
   icon,
-  percentage
+  percentage,
+  activeText
 }: {
   label: string;
   value: string;
   icon: React.ReactNode;
   percentage?: string;
+  activeText?: string;
 }) {
   return (
     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
@@ -382,7 +385,7 @@ function MetricItem({
       </p>
       {percentage && (
         <p className="text-xs font-mono text-[#39FF14] mt-1">
-          {percentage}% Active
+          {percentage}% {activeText || 'Active'}
         </p>
       )}
     </div>
