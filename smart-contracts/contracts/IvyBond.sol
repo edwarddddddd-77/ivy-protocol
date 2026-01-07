@@ -13,6 +13,11 @@ interface IGenesisNodeReferral {
     function referrers(address user) external view returns (address);
 }
 
+/// @notice Interface for LPManager progressive LP strategy
+interface ILPManager {
+    function addLiquidityForBond(uint256 usdtAmount) external;
+}
+
 /**
  * @title IvyBond
  * @dev Bond NFT Contract - Investment Layer of Ivy Protocol
@@ -91,7 +96,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /// @notice Distribution wallets
     address public rwaWallet;        // 40% - Tranche A (User Equity)
-    address public liquidityPool;    // 50% - Tranche B (Mining)
+    address public lpManager;        // 50% - Tranche B (LP Manager for progressive strategy)
     address public reservePool;      // 10% - Tranche C (Donation)
     
     /// @notice IvyCore contract address (for reward calculations)
@@ -164,7 +169,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     event WalletsUpdated(
         address rwaWallet,
-        address liquidityPool,
+        address lpManager,
         address reservePool
     );
     
@@ -193,20 +198,20 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     /**
      * @dev Initialize the IvyBond NFT contract
      * @param _rwaWallet Address for RWA wallet (40% - Tranche A, Redeemable)
-     * @param _liquidityPool Address for liquidity pool (50% - Tranche B, Mining)
+     * @param _lpManager Address for LP Manager (50% - Tranche B, Progressive LP Strategy)
      * @param _reservePool Address for reserve pool (10% - Tranche C, Donation)
      */
     constructor(
         address _rwaWallet,
-        address _liquidityPool,
+        address _lpManager,
         address _reservePool
     ) ERC721("Ivy Bond NFT", "IVY-BOND") Ownable(msg.sender) {
         require(_rwaWallet != address(0), "Invalid RWA wallet");
-        require(_liquidityPool != address(0), "Invalid liquidity pool");
+        require(_lpManager != address(0), "Invalid LP Manager");
         require(_reservePool != address(0), "Invalid reserve pool");
-        
+
         rwaWallet = _rwaWallet;
-        liquidityPool = _liquidityPool;
+        lpManager = _lpManager;
         reservePool = _reservePool;
     }
 
@@ -253,18 +258,18 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      */
     function setWallets(
         address _rwaWallet,
-        address _liquidityPool,
+        address _lpManager,
         address _reservePool
     ) external onlyOwner {
         require(_rwaWallet != address(0), "Invalid RWA wallet");
-        require(_liquidityPool != address(0), "Invalid liquidity pool");
+        require(_lpManager != address(0), "Invalid LP Manager");
         require(_reservePool != address(0), "Invalid reserve pool");
-        
+
         rwaWallet = _rwaWallet;
-        liquidityPool = _liquidityPool;
+        lpManager = _lpManager;
         reservePool = _reservePool;
-        
-        emit WalletsUpdated(_rwaWallet, _liquidityPool, _reservePool);
+
+        emit WalletsUpdated(_rwaWallet, _lpManager, _reservePool);
     }
     
     /**
@@ -332,8 +337,11 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         
         // Execute the 40/50/10 split
         paymentToken.safeTransfer(rwaWallet, toRWA);
-        paymentToken.safeTransfer(liquidityPool, toLiquidity);
         paymentToken.safeTransfer(reservePool, toDonation);  // Donation to protocol reserve
+
+        // Send USDT to LP Manager and trigger progressive LP strategy
+        paymentToken.safeApprove(lpManager, toLiquidity);
+        ILPManager(lpManager).addLiquidityForBond(toLiquidity);
         
         // Mint Bond NFT
         uint256 tokenId = _nextTokenId++;
@@ -637,10 +645,10 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      */
     function getWallets() external view returns (
         address _rwaWallet,
-        address _liquidityPool,
+        address _lpManager,
         address _reservePool
     ) {
-        return (rwaWallet, liquidityPool, reservePool);
+        return (rwaWallet, lpManager, reservePool);
     }
     
     /**

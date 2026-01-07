@@ -54,8 +54,11 @@ contract IvyToken is ERC20, Ownable {
     
     // ============ State Variables ============
 
-    /// @notice Minter address (IvyCore)
+    /// @notice Minter address (IvyCore) for mining rewards
     address public minter;
+
+    /// @notice LP Minter address (LPManager) for LP reserve
+    address public lpMinter;
 
     /// @notice Operations wallet for tax collection
     address public operationsWallet;
@@ -82,6 +85,7 @@ contract IvyToken is ERC20, Ownable {
     event ExcludedFromTax(address indexed account, bool excluded);
     event OperationsWalletUpdated(address indexed oldWallet, address indexed newWallet);
     event MinterUpdated(address indexed oldMinter, address indexed newMinter);
+    event LPMinterUpdated(address indexed oldLPMinter, address indexed newLPMinter);
     
     // ============ Constructor ============
     
@@ -118,7 +122,7 @@ contract IvyToken is ERC20, Ownable {
     // ============ Admin Functions ============
     
     /**
-     * @dev Set minter address (IvyCore)
+     * @dev Set minter address (IvyCore for mining rewards)
      */
     function setMinter(address _minter) external onlyOwner {
         require(_minter != address(0), "Invalid minter");
@@ -127,6 +131,18 @@ contract IvyToken is ERC20, Ownable {
         // Auto-exclude minter from tax
         isExcludedFromTax[_minter] = true;
         emit MinterUpdated(oldMinter, _minter);
+    }
+
+    /**
+     * @dev Set LP minter address (LPManager for LP reserve)
+     */
+    function setLPMinter(address _lpMinter) external onlyOwner {
+        require(_lpMinter != address(0), "Invalid LP minter");
+        address oldLPMinter = lpMinter;
+        lpMinter = _lpMinter;
+        // Auto-exclude LP minter from tax
+        isExcludedFromTax[_lpMinter] = true;
+        emit LPMinterUpdated(oldLPMinter, _lpMinter);
     }
     
     /**
@@ -219,12 +235,23 @@ contract IvyToken is ERC20, Ownable {
     // ============ Minting Functions ============
     
     /**
-     * @dev Mint new tokens (only callable by minter)
+     * @dev Mint new tokens for mining rewards (only callable by minter = IvyCore)
      * @notice Mining is capped at MINING_ALLOCATION (70M IVY)
      * @notice Total supply is capped at TOTAL_SUPPLY_CAP (100M IVY)
      */
     function mint(address to, uint256 amount) external {
         require(msg.sender == minter, "Not minter");
+        require(totalSupply() + amount <= TOTAL_SUPPLY_CAP, "Exceeds total supply cap");
+        _mint(to, amount);
+    }
+
+    /**
+     * @dev Mint new tokens for LP reserve (only callable by lpMinter = LPManager)
+     * @notice LP reserve is capped at 15M IVY (managed by LPManager contract)
+     * @notice Total supply is capped at TOTAL_SUPPLY_CAP (100M IVY)
+     */
+    function mintForLP(address to, uint256 amount) external {
+        require(msg.sender == lpMinter, "Not LP minter");
         require(totalSupply() + amount <= TOTAL_SUPPLY_CAP, "Exceeds total supply cap");
         _mint(to, amount);
     }
