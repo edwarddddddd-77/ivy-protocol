@@ -115,22 +115,42 @@ contract DividendPool is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Sync user's bond power and calculate pending dividends
+     * @dev Sync user's bond power and preserve pending dividends
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              CRITICAL: PRESERVE PENDING DIVIDENDS             ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  When user's bond power changes (deposit/redeem/compound):    ║
+     * ║  1. Calculate pending with OLD bond power                     ║
+     * ║  2. Update snapshot to NEW bond power                         ║
+     * ║  3. Adjust debt to PRESERVE the pending amount                ║
+     * ║                                                               ║
+     * ║  Formula: newDebt = (newPower × accPerShare) - pending        ║
+     * ║  This ensures pending is NOT lost when power changes          ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function syncUser(address user) public {
         uint256 currentBondPower = ivyBond.getBondPower(user);
         uint256 previousBondPower = userBondPowerSnapshot[user];
-        
-        // If user had bond power before, calculate pending based on old snapshot
-        // This ensures fair distribution even when bond power changes
+
+        uint256 pending = 0;
+
+        // Calculate pending dividends with OLD bond power
         if (previousBondPower > 0) {
-            // Pending is already accounted in debt, no action needed
+            uint256 accumulated = (previousBondPower * accDividendPerShare) / ACC_DIVIDEND_PRECISION;
+            uint256 currentDebt = userDividendDebt[user];
+            pending = accumulated > currentDebt ? accumulated - currentDebt : 0;
         }
-        
-        // Update snapshot and debt
+
+        // Update snapshot to NEW bond power
         userBondPowerSnapshot[user] = currentBondPower;
-        userDividendDebt[user] = (currentBondPower * accDividendPerShare) / ACC_DIVIDEND_PRECISION;
-        
+
+        // Update debt to PRESERVE pending dividends
+        // Formula: newDebt = (newPower × accPerShare) - pending
+        // This ensures when user claims, they get: (newPower × accPerShare) - newDebt = pending + future dividends
+        uint256 accumulated = (currentBondPower * accDividendPerShare) / ACC_DIVIDEND_PRECISION;
+        userDividendDebt[user] = accumulated > pending ? accumulated - pending : 0;
+
         emit UserSynced(user, currentBondPower, userDividendDebt[user]);
     }
     

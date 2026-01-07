@@ -86,6 +86,21 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     /// @notice Dead address for burning IVY tokens during compound
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
+    /// @notice Redeem clearance period (7 days for RWA liquidation)
+    uint256 public constant REDEEM_CLEARANCE_PERIOD = 7 days;
+
+    /// @notice Daily redeem limit (10% of TVL to prevent bank run)
+    uint256 public constant DAILY_REDEEM_LIMIT_RATE = 1000;  // 10% in basis points
+
+    // ============ Enums ============
+
+    /// @notice Bond status for redeem lifecycle management
+    enum BondStatus {
+        ACTIVE,      // Normal mining state
+        REDEEMING,   // Clearance period (mining stopped, waiting for RWA liquidation)
+        REDEEMED     // Fully redeemed (can be restaked or traded in secondary market)
+    }
+
     // ============ State Variables ============
     
     /// @notice Payment token (USDT)
@@ -120,19 +135,33 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     /**
      * @notice Bond NFT Data Structure
      * @dev Each NFT represents a unique deposit with its own properties
-     * 
+     *
      * ╔═══════════════════════════════════════════════════════════════╗
      * ║  CRITICAL: principal = 40% RWA (redeemable)                   ║
      * ║            bondPower = 50% LP (mining weight)                 ║
      * ║            10% donation is NOT recorded in user data          ║
+     * ║                                                               ║
+     * ║  REDEEM LIFECYCLE (Two-Step Process):                         ║
+     * ║  1. ACTIVE → requestRedeem() → REDEEMING (mining stops)       ║
+     * ║  2. REDEEMING → claimRedeem() (7 days) → REDEEMED             ║
+     * ║  3. REDEEMED → restake() → ACTIVE (mining resumes)            ║
+     * ║                                                               ║
+     * ║  NFT SECONDARY MARKET:                                        ║
+     * ║  - NFT can be traded even after redeem (REDEEMED status)      ║
+     * ║  - New owner can restake to activate mining                   ║
+     * ║  - originalPrincipal and originalBondPower preserved          ║
      * ╚═══════════════════════════════════════════════════════════════╝
      */
     struct BondInfo {
         uint256 depositTime;         // Timestamp when bond was created
         uint256 totalDeposited;      // Total USDT deposited (for display only)
-        uint256 principal;           // Redeemable principal (40% RWA) - Tranche A
-        uint256 bondPower;           // Mining power (50% LP) - Tranche B
+        uint256 principal;           // Current redeemable principal (40% RWA) - Tranche A
+        uint256 bondPower;           // Current mining power (50% LP) - Tranche B
         uint256 compoundedAmount;    // Total amount compounded into this bond
+        uint256 originalPrincipal;   // Original principal (for restake reference)
+        uint256 originalBondPower;   // Original bond power (for secondary market display)
+        uint256 redeemRequestTime;   // Timestamp when redeem was requested
+        BondStatus status;           // Current bond status (ACTIVE/REDEEMING/REDEEMED)
     }
     
     /// @notice Bond data mapping: tokenId => BondInfo
@@ -144,6 +173,10 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     uint256 public totalBondPower;
     uint256 public totalBonds;
     uint256 public totalPrincipal;   // Total redeemable principal (40% of all deposits)
+
+    /// @notice Redeem queue management (防挤兑机制)
+    uint256 public dailyRedeemedAmount;      // Amount redeemed today
+    uint256 public lastRedeemResetTime;      // Last daily limit reset timestamp
 
     // ============ Events ============
     
@@ -186,11 +219,26 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         uint256 newBondPower
     );
 
-    /// @notice Event emitted when user redeems RWA principal
-    event RwaRedeemed(
+    /// @notice Event emitted when user requests redeem (Step 1 of 2)
+    event RedeemRequested(
         uint256 indexed tokenId,
         address indexed user,
-        uint256 principalRedeemed
+        uint256 principalAmount
+    );
+
+    /// @notice Event emitted when user claims redeemed funds (Step 2 of 2)
+    event RedeemClaimed(
+        uint256 indexed tokenId,
+        address indexed user,
+        uint256 principalClaimed
+    );
+
+    /// @notice Event emitted when user restakes to reactivate NFT
+    event Restaked(
+        uint256 indexed tokenId,
+        address indexed user,
+        uint256 principalRestaked,
+        uint256 bondPowerRestored
     );
 
     // ============ Constructor ============
@@ -237,8 +285,17 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
 
     /**
      * @dev Set the IvyCore contract address
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║    FIX: ONE-TIME ONLY (AUDIT ROUND 2, PROBLEM #5)            ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  ✅ Fix #3: Prevent owner from changing IvyCore after it's   ║
+     * ║            set, preventing permission hijacking attack       ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function setIvyCore(address _ivyCore) external onlyOwner {
+        // ✅ FIX #3: Ensure IvyCore can only be set once
+        require(ivyCore == address(0), "IvyCore already set");
         require(_ivyCore != address(0), "Invalid IvyCore");
         ivyCore = _ivyCore;
         emit IvyCoreSet(_ivyCore);
@@ -329,17 +386,35 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         
         // Transfer USDT from user
         paymentToken.safeTransferFrom(user, address(this), amount);
-        
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║         FIX: ROUNDING ERROR (AUDIT ISSUE #4)                  ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: 40% + 50% + 10% may not sum to 100% due to         ║
+        // ║           integer division truncation                         ║
+        // ║  Solution: Let donation absorb all rounding errors            ║
+        // ║  Formula: toDonation = amount - toRWA - toLiquidity           ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
         // Calculate split amounts (DONATION MODEL)
         uint256 toRWA = (amount * RWA_RATE) / BASIS_POINTS;           // 40% - Tranche A (Redeemable)
         uint256 toLiquidity = (amount * LIQUIDITY_RATE) / BASIS_POINTS; // 50% - Tranche B (Mining)
-        uint256 toDonation = (amount * DONATION_RATE) / BASIS_POINTS;   // 10% - Tranche C (Donation)
-        
+        uint256 toDonation = amount - toRWA - toLiquidity;              // 10% + rounding dust - Tranche C (Donation)
+
         // Execute the 40/50/10 split
         paymentToken.safeTransfer(rwaWallet, toRWA);
         paymentToken.safeTransfer(reservePool, toDonation);  // Donation to protocol reserve
 
-        // Send USDT to LP Manager and trigger progressive LP strategy
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: APPROVE ISSUE (AUDIT ROUND 2, PROBLEM #9)            ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: safeApprove() reverts if allowance is non-zero     ║
+        // ║  Solution: Reset to 0 first, then set new allowance          ║
+        // ║  Prevents: Failed deposits due to residual allowance          ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // ✅ FIX: Reset approval to 0 first to avoid safeApprove revert
+        paymentToken.safeApprove(lpManager, 0);
         paymentToken.safeApprove(lpManager, toLiquidity);
         ILPManager(lpManager).addLiquidityForBond(toLiquidity);
         
@@ -348,19 +423,23 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         _safeMint(user, tokenId);
         
         // Record bond data
-        // CRITICAL CHANGE: 
+        // CRITICAL CHANGE:
         // - principal = 40% RWA (redeemable equity)
         // - bondPower = 50% LP (mining weight)
         // - 10% donation is NOT recorded in user's redeemable balance
         uint256 principal = toRWA;      // 40% - Redeemable principal
         uint256 bondPower = toLiquidity; // 50% - Mining power
-        
+
         bondData[tokenId] = BondInfo({
             depositTime: block.timestamp,
-            totalDeposited: amount,      // Display only - actual redeemable is principal
-            principal: principal,        // 40% RWA - what user can redeem
-            bondPower: bondPower,        // 50% LP - mining weight
-            compoundedAmount: 0
+            totalDeposited: amount,          // Display only - actual redeemable is principal
+            principal: principal,            // 40% RWA - what user can redeem
+            bondPower: bondPower,            // 50% LP - mining weight
+            compoundedAmount: 0,
+            originalPrincipal: principal,    // Store original for restake reference
+            originalBondPower: bondPower,    // Store original for secondary market
+            redeemRequestTime: 0,            // No redeem request yet
+            status: BondStatus.ACTIVE        // Start as active mining NFT
         });
         
         // Update global stats
@@ -455,10 +534,37 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      *
      * @param tokenId Bond NFT token ID
      */
-    function redeem(uint256 tokenId) external nonReentrant {
+    /**
+     * @notice Request redeem (Step 1 of 2) - Initiates 7-day RWA liquidation
+     * @dev Mining stops immediately, funds transferred after clearance period
+     * @param tokenId Bond NFT token ID
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║         TWO-STEP REDEEM PROCESS (Business Logic)              ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Step 1: requestRedeem()                                      ║
+     * ║  - User initiates redeem request                              ║
+     * ║  - NFT mining stops immediately (bondPower → 0)               ║
+     * ║  - Backend starts liquidating RWA investments                 ║
+     * ║  - Status: ACTIVE → REDEEMING                                 ║
+     * ║                                                               ║
+     * ║  Clearance Period: 7 days                                     ║
+     * ║  - RWA platform withdraws investments                         ║
+     * ║  - Converts assets → USDT                                     ║
+     * ║  - Transfers to rwaWallet                                     ║
+     * ║                                                               ║
+     * ║  Step 2: claimRedeem()                                        ║
+     * ║  - After 7 days, user claims funds                            ║
+     * ║  - Funds transferred from rwaWallet                           ║
+     * ║  - Status: REDEEMING → REDEEMED                               ║
+     * ║  - NFT preserved (can be traded or restaked)                  ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function requestRedeem(uint256 tokenId) external nonReentrant {
         require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
 
         BondInfo storage bond = bondData[tokenId];
+        require(bond.status == BondStatus.ACTIVE, "Bond not active");
         require(bond.principal > 0, "No principal to redeem");
 
         // Check 180-day lock period
@@ -467,15 +573,128 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
             "Still in lock period"
         );
 
-        uint256 redeemAmount = bond.principal;
+        // Stop mining immediately (funds no longer earning yield)
+        totalBondPower -= bond.bondPower;
+        bond.bondPower = 0;
 
-        // Mark as redeemed
+        // Record redeem request
+        bond.redeemRequestTime = block.timestamp;
+        bond.status = BondStatus.REDEEMING;
+
+        emit RedeemRequested(tokenId, msg.sender, bond.principal);
+    }
+
+    /**
+     * @notice Claim redeemed funds (Step 2 of 2) - After 7-day clearance
+     * @param tokenId Bond NFT token ID
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║           ANTI-BANK-RUN MECHANISM (防挤兑)                     ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Daily Limit: 10% of total TVL (totalPrincipal)               ║
+     * ║  - Prevents all users from redeeming simultaneously           ║
+     * ║  - Protects protocol from death spiral                        ║
+     * ║  - Resets every 24 hours                                      ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function claimRedeem(uint256 tokenId) external nonReentrant {
+        require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
+
+        BondInfo storage bond = bondData[tokenId];
+        require(bond.status == BondStatus.REDEEMING, "Not in redeeming state");
+        require(
+            block.timestamp >= bond.redeemRequestTime + REDEEM_CLEARANCE_PERIOD,
+            "Clearance period not completed (7 days required)"
+        );
+
+        uint256 claimAmount = bond.principal;
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║             DAILY REDEEM LIMIT (防挤兑队列)                    ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // Reset daily counter if 24 hours passed
+        if (block.timestamp >= lastRedeemResetTime + 1 days) {
+            dailyRedeemedAmount = 0;
+            lastRedeemResetTime = block.timestamp;
+        }
+
+        // Calculate daily limit (10% of TVL)
+        uint256 dailyLimit = (totalPrincipal * DAILY_REDEEM_LIMIT_RATE) / BASIS_POINTS;
+
+        // Check if redeem would exceed daily limit
+        require(
+            dailyRedeemedAmount + claimAmount <= dailyLimit,
+            "Daily redeem limit exceeded, please try tomorrow"
+        );
+
+        // Update daily redeemed amount
+        dailyRedeemedAmount += claimAmount;
+
+        // Update bond status
         bond.principal = 0;
+        bond.status = BondStatus.REDEEMED;
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║         FIX: TOTAL_PRINCIPAL SYNC (AUDIT ISSUE #11)           ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        totalPrincipal -= claimAmount;
 
         // Transfer from RWA wallet to user
-        paymentToken.safeTransferFrom(rwaWallet, msg.sender, redeemAmount);
+        paymentToken.safeTransferFrom(rwaWallet, msg.sender, claimAmount);
 
-        emit RwaRedeemed(tokenId, msg.sender, redeemAmount);
+        emit RedeemClaimed(tokenId, msg.sender, claimAmount);
+    }
+
+    /**
+     * @notice Restake to reactivate NFT mining (After redeem)
+     * @param tokenId Bond NFT token ID
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              NFT SECONDARY MARKET SUPPORT                     ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Scenario 1: Original owner restakes                          ║
+     * ║  - User redeemed 4,000 USDT                                   ║
+     * ║  - Decides to mine again                                      ║
+     * ║  - Deposits 4,000 USDT → NFT resumes mining                   ║
+     * ║                                                               ║
+     * ║  Scenario 2: New owner buys NFT from secondary market         ║
+     * ║  - User A redeems → NFT status = REDEEMED                     ║
+     * ║  - User A sells NFT on OpenSea → User B buys                  ║
+     * ║  - User B sees: originalBondPower = 5,000                     ║
+     * ║  - User B deposits 4,000 USDT → Activates mining              ║
+     * ║                                                               ║
+     * ║  Requirement: Must deposit originalPrincipal amount           ║
+     * ║  Effect: Restores originalBondPower                           ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function restake(uint256 tokenId) external nonReentrant {
+        require(_ownerOf(tokenId) == msg.sender, "Not bond owner");
+        require(address(paymentToken) != address(0), "Payment token not set");
+
+        BondInfo storage bond = bondData[tokenId];
+        require(bond.status == BondStatus.REDEEMED, "Bond not redeemed");
+        require(bond.originalPrincipal > 0, "Invalid original principal");
+
+        uint256 restakeAmount = bond.originalPrincipal;
+
+        // Transfer USDT from user
+        paymentToken.safeTransferFrom(msg.sender, address(this), restakeAmount);
+
+        // Send to RWA wallet (same as deposit flow)
+        paymentToken.safeTransfer(rwaWallet, restakeAmount);
+
+        // Restore bond to active state
+        bond.principal = bond.originalPrincipal;
+        bond.bondPower = bond.originalBondPower;
+        bond.status = BondStatus.ACTIVE;
+        bond.redeemRequestTime = 0;
+
+        // Update global stats
+        totalPrincipal += bond.originalPrincipal;
+        totalBondPower += bond.originalBondPower;
+
+        emit Restaked(tokenId, msg.sender, bond.originalPrincipal, bond.originalBondPower);
     }
 
     // ============ View Functions ============
@@ -696,20 +915,38 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * - Token must exist
      */
     function addCompoundPower(uint256 tokenId, uint256 addedPower) external {
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: ACCESS CONTROL (AUDIT ROUND 2, PROBLEM #5)           ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  ✅ Fix #1: Check ivyCore is initialized (prevents attacks   ║
+        // ║            before IvyCore is set)                            ║
+        // ║  ✅ Fix #2: Single-call power limit (1M IVY) prevents        ║
+        // ║            malicious/buggy IvyCore from adding unrealistic   ║
+        // ║            power in single transaction                       ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // ✅ FIX #1: Ensure IvyCore is properly initialized
+        require(ivyCore != address(0), "IvyCore not initialized");
         require(msg.sender == ivyCore, "Only IvyCore can call");
+
+        // ✅ FIX #2: Single-call power limit (1M IVY = 10^24 wei)
+        // Prevents malicious/buggy IvyCore from adding unrealistic power
+        uint256 MAX_SINGLE_CALL_POWER = 1_000_000 * 10**18;
         require(addedPower > 0, "Power must be > 0");
+        require(addedPower <= MAX_SINGLE_CALL_POWER, "Exceeds single-call limit (1M IVY)");
+
         require(_ownerOf(tokenId) != address(0), "Token does not exist");
-        
+
         // Get bond owner for event
         address owner = _ownerOf(tokenId);
-        
+
         // Update bond data - ONLY bondPower, NOT principal!
         BondInfo storage bond = bondData[tokenId];
         bond.bondPower += addedPower;
-        
+
         // Update global stats
         totalBondPower += addedPower;
-        
+
         emit CompoundPowerAdded(tokenId, owner, addedPower, bond.bondPower);
     }
     

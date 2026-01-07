@@ -51,7 +51,10 @@ contract IvyToken is ERC20, Ownable {
     
     /// @notice Mining allocation: 70,000,000 IVY (minted via IvyCore)
     uint256 public constant MINING_ALLOCATION = 70_000_000 * 10**18;
-    
+
+    /// @notice LP Reserve allocation: 15,000,000 IVY (minted via LPManager)
+    uint256 public constant LP_RESERVE_CAP = 15_000_000 * 10**18;
+
     // ============ State Variables ============
 
     /// @notice Minter address (IvyCore) for mining rewards
@@ -71,6 +74,21 @@ contract IvyToken is ERC20, Ownable {
 
     /// @notice Total IVY sent to operations via tax
     uint256 public totalOpsCollected;
+
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║    FIX: MINTER ALLOCATION TRACKING (AUDIT ROUND 2, #6)      ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Problem: Both minters could mint beyond their allocation    ║
+    // ║  Solution: Separate tracking for each minter's usage         ║
+    // ║  - minter (IvyCore): max 70M IVY for mining rewards          ║
+    // ║  - lpMinter (LPManager): max 15M IVY for LP reserve          ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /// @notice Total IVY minted by minter (IvyCore) - max 70M
+    uint256 public minterUsed;
+
+    /// @notice Total IVY minted by lpMinter (LPManager) - max 15M
+    uint256 public lpMinterUsed;
 
     /// @notice 21M Golden Pivot - Tribute to Bitcoin
     /// @dev After total supply reaches 21M, stop all burns and switch to dividend mode
@@ -236,23 +254,51 @@ contract IvyToken is ERC20, Ownable {
     
     /**
      * @dev Mint new tokens for mining rewards (only callable by minter = IvyCore)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║    FIX: SEPARATE ALLOCATION ENFORCEMENT (AUDIT ROUND 2, #6)  ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  ✅ Track minterUsed separately from lpMinterUsed            ║
+     * ║  ✅ Enforce 70M cap for mining allocation                    ║
+     * ║  ✅ Prevent cross-contamination of allocations               ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     *
      * @notice Mining is capped at MINING_ALLOCATION (70M IVY)
      * @notice Total supply is capped at TOTAL_SUPPLY_CAP (100M IVY)
      */
     function mint(address to, uint256 amount) external {
         require(msg.sender == minter, "Not minter");
+
+        // ✅ FIX: Enforce mining allocation cap (70M)
+        require(minterUsed + amount <= MINING_ALLOCATION, "Exceeds mining allocation (70M)");
         require(totalSupply() + amount <= TOTAL_SUPPLY_CAP, "Exceeds total supply cap");
+
+        minterUsed += amount;
         _mint(to, amount);
     }
 
     /**
      * @dev Mint new tokens for LP reserve (only callable by lpMinter = LPManager)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║    FIX: SEPARATE ALLOCATION ENFORCEMENT (AUDIT ROUND 2, #6)  ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  ✅ Track lpMinterUsed separately from minterUsed            ║
+     * ║  ✅ Enforce 15M cap for LP reserve allocation                ║
+     * ║  ✅ Prevent cross-contamination of allocations               ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     *
      * @notice LP reserve is capped at 15M IVY (managed by LPManager contract)
      * @notice Total supply is capped at TOTAL_SUPPLY_CAP (100M IVY)
      */
     function mintForLP(address to, uint256 amount) external {
         require(msg.sender == lpMinter, "Not LP minter");
+
+        // ✅ FIX: Enforce LP reserve cap (15M)
+        require(lpMinterUsed + amount <= LP_RESERVE_CAP, "Exceeds LP reserve allocation (15M)");
         require(totalSupply() + amount <= TOTAL_SUPPLY_CAP, "Exceeds total supply cap");
+
+        lpMinterUsed += amount;
         _mint(to, amount);
     }
     
@@ -294,10 +340,28 @@ contract IvyToken is ERC20, Ownable {
             super._update(from, to, amount);
             return;
         }
-        
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: SMALL TRANSFER TAX BYPASS (AUDIT ROUND 2, #12)      ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: Transfers < 1000 IVY have 0 tax (integer division) ║
+        // ║  Solution: Enforce minimum 1 wei tax if amount >= 100 IVY    ║
+        // ║  - Prevents small transfer tax evasion                       ║
+        // ║  - Dust transfers (< 100 IVY) still exempt (gas efficiency)  ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
         // Calculate tax amounts
         uint256 burnAmount = (amount * BURN_RATE) / BASIS_POINTS;     // 0.1%
         uint256 opsAmount = (amount * OPS_RATE) / BASIS_POINTS;       // 0.1%
+
+        // ✅ FIX: Enforce minimum tax for non-dust transfers
+        if (amount >= 100 * 10**18) {  // If transferring >= 100 IVY
+            // Ensure at least 1 wei total tax
+            if (burnAmount == 0 && opsAmount == 0) {
+                opsAmount = 1;  // Minimum tax goes to operations
+            }
+        }
+
         uint256 transferAmount = amount - burnAmount - opsAmount;     // 99.8%
 
         // ╔═══════════════════════════════════════════════════════════════╗

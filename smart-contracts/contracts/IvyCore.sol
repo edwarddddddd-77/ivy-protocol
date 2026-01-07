@@ -194,6 +194,40 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Referral rewards tracking
     mapping(address => uint256) public referralRewardsEarned;
 
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║         TEAM PERFORMANCE TRACKING (FEATURE REQUEST)          ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Purpose: Enable team dashboard and performance analytics    ║
+    // ║  Data stored: Referral history, direct referrals, stats      ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /// @notice Referral reward record structure
+    struct ReferralRewardRecord {
+        uint256 timestamp;      // When reward was paid
+        uint256 amount;         // Reward amount in IVY
+        uint8 level;            // 1=L1直推, 2=L2间推, 3=TeamBonus, 4=PeerBonus
+        address fromUser;       // Reward triggered by which user
+    }
+
+    /// @notice Referral reward history for each user
+    mapping(address => ReferralRewardRecord[]) public referralRewardHistory;
+
+    /// @notice Direct referrals list (only L1 direct referrals)
+    mapping(address => address[]) public directReferrals;
+
+    /// @notice Track if user is already in referrer's direct list (prevent duplicates)
+    mapping(address => mapping(address => bool)) private isDirectReferral;
+
+    /// @notice Team statistics cache (updated on syncUser)
+    struct TeamStats {
+        uint256 totalMembers;       // Total team size (all levels)
+        uint256 totalBondPower;     // Total team bond power
+        uint256 activeMembers;      // Members with bondPower > 0
+        uint256 lastUpdateTime;     // Last stats update timestamp
+    }
+
+    mapping(address => TeamStats) public teamStatsCache;
+
     // ============ Events ============
     
     event PoolUpdated(uint256 accIvyPerShare, uint256 lastRewardTime, uint256 totalPoolBondPower);
@@ -400,20 +434,41 @@ contract IvyCore is Ownable, ReentrancyGuard {
      * Formula: alpha = (P / MA30)^k, capped between [PID_FLOOR, PID_CAP]
      */
     function _calculatePIDAlpha(uint256 _currentPrice, uint256 _ma30Price) internal pure returns (uint256) {
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: PRICE SANITY CHECK (AUDIT ROUND 2, #13)             ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: Extreme Oracle prices cause updatePool() to fail  ║
+        // ║  Solution: Validate prices are within reasonable range      ║
+        // ║  Range: $0.01 - $1000 (18 decimals: 0.01e18 - 1000e18)      ║
+        // ║  Impact: Protocol continues even during Oracle failures     ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // ✅ FIX: Sanity check prices (protect against Oracle failures)
+        uint256 MIN_PRICE = 0.01 * 10**18;    // $0.01
+        uint256 MAX_PRICE = 1000 * 10**18;    // $1000
+
+        // If prices are out of range, return neutral multiplier (1.0x)
+        if (_currentPrice < MIN_PRICE || _currentPrice > MAX_PRICE) {
+            return 10**18;  // Fallback to 1.0x (no PID adjustment)
+        }
+        if (_ma30Price < MIN_PRICE || _ma30Price > MAX_PRICE) {
+            return 10**18;  // Fallback to 1.0x (no PID adjustment)
+        }
+
         // Prevent division by zero
         if (_ma30Price == 0) return 10**18;  // Return 1.0x
-        
+
         // Calculate ratio = currentPrice / ma30Price (in 18 decimals)
         uint256 ratio = (_currentPrice * 10**18) / _ma30Price;
-        
+
         // Calculate alpha = ratio^2 (k=2.0)
         // ratio^2 = ratio * ratio / 10^18
         uint256 alpha = (ratio * ratio) / 10**18;
-        
+
         // Apply cap and floor
         if (alpha > PID_CAP) alpha = PID_CAP;     // Max 1.5x
         if (alpha < PID_FLOOR) alpha = PID_FLOOR; // Min 0.1x
-        
+
         return alpha;
     }
     
@@ -694,31 +749,37 @@ contract IvyCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Claim vested IVY (30-day linear release)
+     * @dev Claim vested IVY (30-day wait period, NOT linear release)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║              30-DAY LOCK MECHANISM (Whitepaper)               ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  User harvests → Starts 30-day timer                          ║
+     * ║  Days 1-29: CANNOT claim (must use instantCashOut -50%)       ║
+     * ║  Day 30+:   CAN claim 100%                                    ║
+     * ║                                                               ║
+     * ║  NOT linear release! Must wait full 30 days.                  ║
+     * ╚═══════════════════════════════════════════════════════════════╝
      */
     function claimVested() external nonReentrant {
         address user = msg.sender;
         UserInfo storage info = userInfo[user];
-        
+
         require(info.totalVested > 0, "Nothing vested");
         require(info.vestingStartTime > 0, "Vesting not started");
-        
+
         uint256 timeElapsed = block.timestamp - info.vestingStartTime;
-        uint256 vestedAmount;
-        
-        if (timeElapsed >= VESTING_PERIOD) {
-            vestedAmount = info.totalVested;
-        } else {
-            vestedAmount = (info.totalVested * timeElapsed) / VESTING_PERIOD;
-        }
-        
-        uint256 claimable = vestedAmount - info.totalClaimed;
+
+        // Must wait full 30 days (NOT linear release)
+        require(timeElapsed >= VESTING_PERIOD, "Vesting period not completed yet");
+
+        uint256 claimable = info.totalVested - info.totalClaimed;
         require(claimable > 0, "Nothing to claim");
-        
+
         info.totalClaimed += claimable;
-        
+
         ivyToken.transfer(user, claimable);
-        
+
         emit VestingClaimed(user, claimable);
     }
 
@@ -815,6 +876,12 @@ contract IvyCore is Ownable, ReentrancyGuard {
             ivyToken.mint(l1Referrer, l1Reward);
             referralRewardsEarned[l1Referrer] += l1Reward;
             emit ReferralRewardPaid(l1Referrer, user, l1Reward, 1);
+
+            // 📊 Record referral reward history (team dashboard feature)
+            _recordReferralReward(l1Referrer, user, l1Reward, 1);
+
+            // 📊 Record direct referral relationship (first time only)
+            _addDirectReferral(l1Referrer, user);
         }
         
         // ========== STEP 2: L2 Indirect Referral (5%) ==========
@@ -826,6 +893,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
                 ivyToken.mint(l2Referrer, l2Reward);
                 referralRewardsEarned[l2Referrer] += l2Reward;
                 emit ReferralRewardPaid(l2Referrer, user, l2Reward, 2);
+
+                // 📊 Record referral reward history
+                _recordReferralReward(l2Referrer, user, l2Reward, 2);
             }
         }
         
@@ -858,6 +928,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
                 ivyToken.mint(teamLeader, teamReward);
                 referralRewardsEarned[teamLeader] += teamReward;
                 emit TeamBonusCaptured(teamLeader, user, teamReward, teamLeaderDepth);
+
+                // 📊 Record team bonus history
+                _recordReferralReward(teamLeader, user, teamReward, 3);
             }
             
             // ========== STEP 4: Peer Bonus (0.5%) ==========
@@ -870,6 +943,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
                     ivyToken.mint(leaderUpline, peerReward);
                     referralRewardsEarned[leaderUpline] += peerReward;
                     emit PeerBonusPaid(leaderUpline, teamLeader, peerReward);
+
+                    // 📊 Record peer bonus history
+                    _recordReferralReward(leaderUpline, user, peerReward, 4);
                 }
             }
         }
@@ -894,15 +970,27 @@ contract IvyCore is Ownable, ReentrancyGuard {
         totalVested = info.totalVested;
         totalClaimed = info.totalClaimed;
         
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: VESTING LOGIC MISMATCH (AUDIT ROUND 2, #1)          ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: This function showed linear release (50% after 15d)║
+        // ║           but claimVested() requires full 30 days            ║
+        // ║  Impact: Frontend shows "claimable" but claim fails          ║
+        // ║  Solution: Match claimVested() logic - strict 30-day lock   ║
+        // ║  NOTE: Frontend needs update to show "Locked until [date]"  ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
         if (info.vestingStartTime > 0 && info.totalVested > 0) {
             uint256 timeElapsed = block.timestamp - info.vestingStartTime;
-            uint256 vestedAmount;
+
+            // ✅ FIX: Strict 30-day lock (NOT linear release)
             if (timeElapsed >= VESTING_PERIOD) {
-                vestedAmount = info.totalVested;
+                // After 30 days: all remaining vested amount is claimable
+                claimableNow = info.totalVested - info.totalClaimed;
             } else {
-                vestedAmount = (info.totalVested * timeElapsed) / VESTING_PERIOD;
+                // Before 30 days: nothing claimable (must wait)
+                claimableNow = 0;
             }
-            claimableNow = vestedAmount > info.totalClaimed ? vestedAmount - info.totalClaimed : 0;
         }
     }
 
@@ -1015,8 +1103,29 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // 3. Update State (Reset Debt & Clear Vesting) -> PREVENT DOUBLE SPEND
         user.rewardDebt = user.bondPower * accIvyPerShare / ACC_IVY_PRECISION;
         user.pendingVested = 0;
-        
-        // 4. Calculate Value via Oracle
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: MINING CAP CHECK (AUDIT ROUND 2, #7)                ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: Direct mint without checking 70M cap              ║
+        // ║  Solution: Scale down totalPending if it would exceed cap   ║
+        // ║  Impact: Prevents totalMinted from exceeding 70M            ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // 4. Mint IVY from vIVY (occupy mining quota)
+        // vIVY is virtual accounting, must convert to real IVY before burn
+
+        // ✅ FIX: Check mining cap before minting
+        if (totalMinted + totalPending > MINING_CAP) {
+            // Scale down to not exceed cap
+            totalPending = MINING_CAP > totalMinted ? MINING_CAP - totalMinted : 0;
+            require(totalPending > 0, "Mining cap reached, cannot compound");
+        }
+
+        totalMinted += totalPending;
+        ivyToken.mint(address(this), totalPending);
+
+        // 5. Calculate Value via Oracle
         // Note: Oracle returns price with 18 decimals (1e18 = $1.0)
         uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
         require(ivyPrice > 0, "Oracle price is zero");
@@ -1024,13 +1133,244 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // Value in USDT = (Amount * Price) / 1e18
         uint256 valueInUSDT = (totalPending * ivyPrice) / 10**18;
 
-        // 5. Calculate Power to Add (10% Bonus)
+        // 6. Calculate Power to Add (10% Bonus)
         // Power = Value * 1.1
         uint256 powerToAdd = (valueInUSDT * 110) / 100;
 
-        // 6. Inject to Bond (Cross-Contract Call)
+        // 7. Burn IVY (Deflationary mechanism)
+        // Transfer to dead address (0xdead) for permanent burn
+        ivyToken.transfer(address(0xdead), totalPending);
+
+        // 8. Inject to Bond (Cross-Contract Call)
         ivyBond.addCompoundPower(tokenId, powerToAdd);
-        
+
         emit VestedCompounded(msg.sender, tokenId, totalPending, powerToAdd);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║            TEAM PERFORMANCE TRACKING FUNCTIONS               ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Purpose: Enable comprehensive team dashboard analytics      ║
+    // ║  Features: History, direct refs, team stats, earnings        ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /**
+     * @dev Internal function to record referral reward history
+     * @param receiver Address receiving the reward
+     * @param fromUser Address whose action triggered the reward
+     * @param amount Reward amount
+     * @param level 1=L1, 2=L2, 3=TeamBonus, 4=PeerBonus
+     */
+    function _recordReferralReward(
+        address receiver,
+        address fromUser,
+        uint256 amount,
+        uint8 level
+    ) internal {
+        referralRewardHistory[receiver].push(ReferralRewardRecord({
+            timestamp: block.timestamp,
+            amount: amount,
+            level: level,
+            fromUser: fromUser
+        }));
+    }
+
+    /**
+     * @dev Internal function to add direct referral (only first time)
+     * @param referrer The referrer address
+     * @param referred The referred user address
+     */
+    function _addDirectReferral(address referrer, address referred) internal {
+        if (!isDirectReferral[referrer][referred]) {
+            directReferrals[referrer].push(referred);
+            isDirectReferral[referrer][referred] = true;
+        }
+    }
+
+    /**
+     * @dev Get referral reward history with pagination
+     * @param user User address
+     * @param offset Starting index
+     * @param limit Number of records to return
+     * @return records Array of reward records
+     * @return total Total number of records
+     */
+    function getReferralRewardHistory(
+        address user,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (
+        ReferralRewardRecord[] memory records,
+        uint256 total
+    ) {
+        total = referralRewardHistory[user].length;
+
+        if (offset >= total) {
+            return (new ReferralRewardRecord[](0), total);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 length = end - offset;
+        records = new ReferralRewardRecord[](length);
+
+        // Return in reverse order (newest first)
+        for (uint256 i = 0; i < length; i++) {
+            records[i] = referralRewardHistory[user][total - 1 - offset - i];
+        }
+    }
+
+    /**
+     * @dev Get user's direct referrals list with their stats
+     * @param user User address
+     * @return referrals Array of direct referral addresses
+     * @return bondPowers Array of each referral's bond power
+     * @return totalRewards Array of total rewards given by each referral
+     */
+    function getDirectReferrals(address user) external view returns (
+        address[] memory referrals,
+        uint256[] memory bondPowers,
+        uint256[] memory totalRewards
+    ) {
+        referrals = directReferrals[user];
+        uint256 length = referrals.length;
+
+        bondPowers = new uint256[](length);
+        totalRewards = new uint256[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            address ref = referrals[i];
+            bondPowers[i] = userInfo[ref].bondPower;
+
+            // Calculate total rewards from this referral (L1 10% + L2 5% + extras)
+            // Approximation: count L1 rewards in history
+            uint256 rewards = 0;
+            ReferralRewardRecord[] storage history = referralRewardHistory[user];
+            for (uint256 j = 0; j < history.length; j++) {
+                if (history[j].fromUser == ref && history[j].level == 1) {
+                    rewards += history[j].amount;
+                }
+            }
+            totalRewards[i] = rewards;
+        }
+    }
+
+    /**
+     * @dev Get team statistics (recursive calculation, max 20 levels)
+     * @param user User address
+     * @return totalMembers Total team size (all levels)
+     * @return totalBondPower Total team bond power
+     * @return activeMembers Number of active members (bondPower > 0)
+     * @return directCount Direct referral count
+     */
+    function getTeamStats(address user) external view returns (
+        uint256 totalMembers,
+        uint256 totalBondPower,
+        uint256 activeMembers,
+        uint256 directCount
+    ) {
+        if (address(genesisNode) == address(0)) {
+            return (0, 0, 0, 0);
+        }
+
+        directCount = directReferrals[user].length;
+
+        // Recursive team counting (with depth limit)
+        (totalMembers, totalBondPower, activeMembers) = _countTeamRecursive(user, 0);
+    }
+
+    /**
+     * @dev Recursive helper to count team members and stats
+     * @param user Current user to check
+     * @param currentDepth Current recursion depth
+     */
+    function _countTeamRecursive(
+        address user,
+        uint256 currentDepth
+    ) internal view returns (
+        uint256 members,
+        uint256 totalPower,
+        uint256 active
+    ) {
+        // Stop at max depth
+        if (currentDepth >= MAX_REFERRAL_DEPTH) {
+            return (0, 0, 0);
+        }
+
+        address[] memory refs = directReferrals[user];
+        members = refs.length;
+
+        for (uint256 i = 0; i < refs.length; i++) {
+            address ref = refs[i];
+            uint256 refPower = userInfo[ref].bondPower;
+
+            totalPower += refPower;
+            if (refPower > 0) {
+                active++;
+            }
+
+            // Recursively count sub-team
+            (uint256 subMembers, uint256 subPower, uint256 subActive) =
+                _countTeamRecursive(ref, currentDepth + 1);
+
+            members += subMembers;
+            totalPower += subPower;
+            active += subActive;
+        }
+    }
+
+    /**
+     * @dev Get comprehensive user referral summary
+     * @param user User address
+     * @return directReferralCount Number of direct referrals
+     * @return totalTeamSize Total team size (all levels)
+     * @return totalReferralRewards Total referral rewards earned
+     * @return rewardHistoryCount Number of reward records
+     * @return hasGenesisNode Whether user holds GenesisNode NFT
+     */
+    function getUserReferralSummary(address user) external view returns (
+        uint256 directReferralCount,
+        uint256 totalTeamSize,
+        uint256 totalReferralRewards,
+        uint256 rewardHistoryCount,
+        bool hasGenesisNode
+    ) {
+        directReferralCount = directReferrals[user].length;
+        totalReferralRewards = referralRewardsEarned[user];
+        rewardHistoryCount = referralRewardHistory[user].length;
+
+        if (address(genesisNode) != address(0)) {
+            hasGenesisNode = genesisNode.balanceOf(user) > 0;
+            (totalTeamSize, , ) = _countTeamRecursive(user, 0);
+        }
+    }
+
+    /**
+     * @dev Get team performance leaderboard data
+     * @param user User address
+     * @return rank User's rank in team (placeholder - needs off-chain indexing)
+     * @return teamBondPower Total team bond power
+     * @return teamActiveRate Percentage of active members (basis points)
+     * @return avgBondPower Average bond power per member
+     */
+    function getTeamPerformance(address user) external view returns (
+        uint256 rank,
+        uint256 teamBondPower,
+        uint256 teamActiveRate,
+        uint256 avgBondPower
+    ) {
+        (uint256 totalMembers, uint256 totalPower, uint256 activeMembers, ) =
+            this.getTeamStats(user);
+
+        rank = 0;  // Requires off-chain indexing for global ranking
+        teamBondPower = totalPower;
+
+        if (totalMembers > 0) {
+            teamActiveRate = (activeMembers * BASIS_POINTS) / totalMembers;
+            avgBondPower = totalPower / totalMembers;
+        }
     }
 }

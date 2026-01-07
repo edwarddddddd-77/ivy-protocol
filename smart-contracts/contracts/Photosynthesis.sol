@@ -58,6 +58,7 @@ interface IDividendPool {
 /// @notice Price Oracle Interface
 interface IPriceOraclePhotosynthesis {
     function getLatestPrice() external view returns (uint256);
+    function getMA30Price() external view returns (uint256);
 }
 
 contract Photosynthesis is Ownable, ReentrancyGuard {
@@ -236,15 +237,31 @@ contract Photosynthesis is Ownable, ReentrancyGuard {
         
         // Transfer USDT from RWA wallet (must have approved this contract)
         usdt.safeTransferFrom(rwaWallet, address(this), amount);
-        
-        // Fetch latest price from oracle if available
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║              UPDATE PRICES FROM ORACLE                        ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Fetch BOTH current price AND MA30 price from oracle          ║
+        // ║  If oracle fails, use stored prices as fallback               ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
         if (address(priceOracle) != address(0)) {
+            // Fetch current price
             try priceOracle.getLatestPrice() returns (uint256 price) {
                 if (price > 0) {
                     currentPrice = price;
                 }
             } catch {
                 // Use stored price if oracle fails
+            }
+
+            // Fetch MA30 price
+            try priceOracle.getMA30Price() returns (uint256 ma30) {
+                if (ma30 > 0) {
+                    ma30Price = ma30;
+                }
+            } catch {
+                // Use stored MA30 if oracle fails
             }
         }
         

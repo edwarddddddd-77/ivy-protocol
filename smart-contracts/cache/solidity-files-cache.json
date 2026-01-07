@@ -912,8 +912,8 @@
       ]
     },
     "C:\\Users\\Administrator\\ivy-protocol\\smart-contracts\\contracts\\IvyCore.sol": {
-      "lastModificationDate": 1767652255750,
-      "contentHash": "02299a2e19ddbc6389b9235ffdd2eae9",
+      "lastModificationDate": 1767654631863,
+      "contentHash": "dc8fd606d97b2ff752489390741b628f",
       "sourceName": "contracts/IvyCore.sol",
       "solcConfig": {
         "version": "0.8.20",

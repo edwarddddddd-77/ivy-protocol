@@ -186,12 +186,46 @@ contract LPManager is Ownable, ReentrancyGuard {
         // Get current stage and reserve ratio
         (uint256 currentStage, uint256 reserveRatio) = getCurrentStageInfo();
 
-        // Calculate IVY needed for LP (assuming price from oracle or hardcoded $1)
-        uint256 totalIvyNeeded = _getIvyAmountForLP(usdtAmount);
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║              CORRECT LP PAIRING CALCULATION                   ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: If we spend USDT buying IVY, less USDT for LP      ║
+        // ║  Solution: Calculate balanced amount considering buy cost     ║
+        // ║                                                               ║
+        // ║  Formula: balancedAmount = totalUSDT / (1 + marketBuyRatio)   ║
+        // ║                                                               ║
+        // ║  Example (5000 USDT, 80% reserve, 20% market):                ║
+        // ║  - balancedAmount = 5000 / 1.2 = 4166.67                      ║
+        // ║  - Mint 3333.33 IVY from reserve (80%)                        ║
+        // ║  - Buy 833.33 IVY from market (costs 833.33 USDT)             ║
+        // ║  - Add LP: 4166.67 IVY + 4166.67 USDT                         ║
+        // ║  - Total USDT: 833.33 + 4166.67 = 5000 ✓                      ║
+        // ╚═══════════════════════════════════════════════════════════════╝
 
-        // Calculate split: how much from reserve vs market
-        uint256 ivyFromReserve = (totalIvyNeeded * reserveRatio) / BASIS_POINTS;
-        uint256 ivyFromMarket = totalIvyNeeded - ivyFromReserve;
+        // Calculate market buy ratio (opposite of reserve ratio)
+        uint256 marketBuyRatio = BASIS_POINTS - reserveRatio;
+
+        // Calculate balanced LP amount accounting for market buy cost
+        // balancedAmount represents both IVY and USDT amounts for LP (1:1 at $1 price)
+        uint256 balancedAmount = (usdtAmount * BASIS_POINTS) / (BASIS_POINTS + marketBuyRatio);
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: PRECISION LOSS (AUDIT ROUND 2, PROBLEM #10)         ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Problem: ivyFromReserve + ivyFromMarket ≠ balancedAmount   ║
+        // ║           due to integer division truncation                 ║
+        // ║  Solution: Let ivyFromMarket absorb rounding error           ║
+        // ║  Formula: ivyFromMarket = balancedAmount - ivyFromReserve    ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // Calculate IVY split: how much from reserve vs market
+        uint256 ivyFromReserve = (balancedAmount * reserveRatio) / BASIS_POINTS;
+        // ✅ FIX: Absorb truncation error in market buy amount
+        uint256 ivyFromMarket = balancedAmount - ivyFromReserve;
+
+        // Calculate USDT split
+        uint256 usdtForBuy = ivyFromMarket;  // USDT needed to buy IVY from market (1:1 at $1 price)
+        uint256 usdtForLP = balancedAmount;   // USDT for LP pairing
 
         // Step 1: Mint IVY from reserve (if any)
         if (ivyFromReserve > 0) {
@@ -205,10 +239,7 @@ contract LPManager is Ownable, ReentrancyGuard {
         }
 
         // Step 2: Buy IVY from market (if any)
-        if (ivyFromMarket > 0) {
-            // Calculate USDT needed for buying
-            uint256 usdtForBuy = (usdtAmount * (BASIS_POINTS - reserveRatio)) / BASIS_POINTS;
-
+        if (ivyFromMarket > 0 && usdtForBuy > 0) {
             // Buy IVY from Uniswap using USDT
             _buyIvyFromMarket(usdtForBuy);
 
@@ -216,8 +247,8 @@ contract LPManager is Ownable, ReentrancyGuard {
         }
 
         // Step 3: Add liquidity to Uniswap
-        uint256 usdtForLP = usdtAmount;
-        uint256 ivyForLP = totalIvyNeeded;
+        // Total IVY = ivyFromReserve + ivyFromMarket = balancedAmount
+        uint256 ivyForLP = balancedAmount;
 
         _addLiquidityToUniswap(ivyForLP, usdtForLP);
 
@@ -270,7 +301,15 @@ contract LPManager is Ownable, ReentrancyGuard {
      * @param usdtAmount USDT amount to spend
      */
     function _buyIvyFromMarket(uint256 usdtAmount) internal {
-        // Approve router
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: APPROVE DOS & SLIPPAGE (AUDIT ROUND 2, #2 & #8)     ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Fix #8: Reset approval to 0 before setting new value        ║
+        // ║  Fix #2: Add 5% slippage protection (MEV defense)            ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // ✅ FIX #8: Reset approval to 0 first to avoid safeApprove revert
+        usdt.safeApprove(uniswapRouter, 0);
         usdt.safeApprove(uniswapRouter, usdtAmount);
 
         // Prepare swap path: USDT → IVY
@@ -278,10 +317,15 @@ contract LPManager is Ownable, ReentrancyGuard {
         path[0] = address(usdt);
         path[1] = address(ivyToken);
 
+        // ✅ FIX #2: Add 5% slippage protection
+        // Calculate minimum IVY output (95% of expected at current price)
+        uint256 expectedIvy = usdtAmount;  // Assuming $1 price
+        uint256 minIvyOut = (expectedIvy * 9500) / 10000;  // 95% = 5% slippage
+
         // Execute swap (using Uniswap V2 Router)
         IUniswapV2Router(uniswapRouter).swapExactTokensForTokens(
             usdtAmount,
-            0,  // Accept any amount (can add slippage protection)
+            minIvyOut,  // ✅ FIXED: 5% slippage protection (was 0)
             path,
             address(this),
             block.timestamp + 300  // 5 min deadline
@@ -294,9 +338,22 @@ contract LPManager is Ownable, ReentrancyGuard {
      * @param usdtAmount USDT amount
      */
     function _addLiquidityToUniswap(uint256 ivyAmount, uint256 usdtAmount) internal {
-        // Approve router
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║    FIX: APPROVE DOS & SLIPPAGE (AUDIT ROUND 2, #2 & #8)     ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Fix #8: Reset approvals to 0 before setting new values     ║
+        // ║  Fix #2: Add 5% slippage protection (MEV defense)            ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // ✅ FIX #8: Reset approvals to 0 first to avoid safeApprove revert
+        ivyToken.safeApprove(uniswapRouter, 0);
         ivyToken.safeApprove(uniswapRouter, ivyAmount);
+        usdt.safeApprove(uniswapRouter, 0);
         usdt.safeApprove(uniswapRouter, usdtAmount);
+
+        // ✅ FIX #2: Calculate minimum amounts with 5% slippage tolerance
+        uint256 minIvyAmount = (ivyAmount * 9500) / 10000;   // 95% of desired
+        uint256 minUsdtAmount = (usdtAmount * 9500) / 10000; // 95% of desired
 
         // Add liquidity
         IUniswapV2Router(uniswapRouter).addLiquidity(
@@ -304,8 +361,8 @@ contract LPManager is Ownable, ReentrancyGuard {
             address(usdt),
             ivyAmount,
             usdtAmount,
-            0,  // Accept any amount (can add slippage protection)
-            0,
+            minIvyAmount,   // ✅ FIXED: 5% slippage protection (was 0)
+            minUsdtAmount,  // ✅ FIXED: 5% slippage protection (was 0)
             address(this),  // LP tokens go to LPManager
             block.timestamp + 300
         );
