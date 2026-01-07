@@ -218,6 +218,17 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /// @notice Track if user is already in referrer's direct list (prevent duplicates)
     mapping(address => mapping(address => bool)) private isDirectReferral;
 
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║     INCREMENTAL TEAM STATS (GAS OPTIMIZATION)                ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Purpose: Pre-calculate team stats on deposit instead of     ║
+    // ║           recursive calculation on query (prevents gas DoS)  ║
+    // ║  Max depth: 20 levels (fixed, prevents unbounded loops)      ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /// @notice Maximum depth for upward team stats propagation
+    uint256 public constant TEAM_STATS_MAX_DEPTH = 20;
+
     /// @notice Team statistics cache (updated on syncUser)
     struct TeamStats {
         uint256 totalMembers;       // Total team size (all levels)
@@ -475,8 +486,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
     /**
      * @dev Check and trigger circuit breaker based on 1-hour price drop
      * Called by external keeper when price data is updated
+     * @notice Only owner/keeper can call (prevents griefing attacks)
      */
-    function checkCircuitBreaker() external {
+    function checkCircuitBreaker() external onlyOwner {
         // Calculate 1-hour price change percentage
         // dropPercent = ((currentPrice - price1hAgo) / price1hAgo) * 100
         // Stored as integer, negative means drop
@@ -647,11 +659,17 @@ contract IvyCore is Ownable, ReentrancyGuard {
         
         // Update total pool bond power
         totalPoolBondPower = totalPoolBondPower - info.bondPower + effectiveBondPower;
-        
+
+        // ===== NEW: Incremental team stats update (gas optimization) =====
+        uint256 oldBondPower = info.bondPower;
+
         // Update user info
         info.bondPower = effectiveBondPower;
         info.rewardDebt = effectiveBondPower * accIvyPerShare / ACC_IVY_PRECISION;
-        
+
+        // Update team stats incrementally (max 20 levels, O(1) on query)
+        _updateTeamStatsIncremental(user, oldBondPower, effectiveBondPower);
+
         emit UserSynced(user, effectiveBondPower, info.rewardDebt);
     }
 
@@ -1278,8 +1296,19 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
         directCount = directReferrals[user].length;
 
-        // Recursive team counting (with depth limit)
-        (totalMembers, totalBondPower, activeMembers) = _countTeamRecursive(user, 0);
+        // ===== OPTIMIZATION: Use cached stats if available =====
+        TeamStats memory cachedStats = teamStatsCache[user];
+
+        // If cache is initialized (lastUpdateTime > 0), use it (O(1) complexity)
+        if (cachedStats.lastUpdateTime > 0) {
+            totalMembers = cachedStats.totalMembers;
+            totalBondPower = cachedStats.totalBondPower;
+            activeMembers = cachedStats.activeMembers;
+        } else {
+            // Fallback: Recursive team counting (only for uncached users)
+            // This happens on first query before any deposits
+            (totalMembers, totalBondPower, activeMembers) = _countTeamRecursive(user, 0);
+        }
     }
 
     /**
@@ -1319,6 +1348,82 @@ contract IvyCore is Ownable, ReentrancyGuard {
             members += subMembers;
             totalPower += subPower;
             active += subActive;
+        }
+    }
+
+    /**
+     * @dev Update team statistics incrementally (gas-optimized)
+     * @notice Called when user's bond power changes (deposit/redeem/compound)
+     * @param user User whose bond power changed
+     * @param oldBondPower Previous bond power
+     * @param newBondPower New bond power
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║   INCREMENTAL UPDATE STRATEGY (Prevents Unbounded Loops)     ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  Instead of recursively calculating team stats on query,      ║
+     * ║  we update stats incrementally when bondPower changes:        ║
+     * ║                                                               ║
+     * ║  1. Traverse upward max 20 levels (FIXED, not unbounded)     ║
+     * ║  2. Update each upline's cached team stats                    ║
+     * ║  3. Query becomes O(1) instead of O(n^depth)                  ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function _updateTeamStatsIncremental(
+        address user,
+        uint256 oldBondPower,
+        uint256 newBondPower
+    ) internal {
+        if (address(genesisNode) == address(0)) return;
+
+        address currentReferrer = genesisNode.getReferrer(user);
+        uint256 depth = 0;
+
+        // If this is first deposit (oldBondPower == 0), increment member count
+        bool isNewMember = (oldBondPower == 0 && newBondPower > 0);
+        bool isLeaving = (oldBondPower > 0 && newBondPower == 0);
+
+        int256 bondPowerDelta = int256(newBondPower) - int256(oldBondPower);
+
+        // Traverse upward maximum 20 levels (FIXED LIMIT, prevents gas DoS)
+        while (currentReferrer != address(0) && depth < TEAM_STATS_MAX_DEPTH) {
+            TeamStats storage stats = teamStatsCache[currentReferrer];
+
+            // Update member count
+            if (isNewMember) {
+                stats.totalMembers += 1;
+                stats.activeMembers += 1;
+            } else if (isLeaving) {
+                if (stats.activeMembers > 0) stats.activeMembers -= 1;
+                // Don't decrease totalMembers (once a member, always counted)
+            } else {
+                // Power changed but member status unchanged
+                // Update activeMembers status if crossing zero threshold
+                if (oldBondPower == 0 && newBondPower > 0) {
+                    stats.activeMembers += 1;
+                } else if (oldBondPower > 0 && newBondPower == 0) {
+                    if (stats.activeMembers > 0) stats.activeMembers -= 1;
+                }
+            }
+
+            // Update total bond power (can be negative if power decreased)
+            if (bondPowerDelta > 0) {
+                stats.totalBondPower += uint256(bondPowerDelta);
+            } else if (bondPowerDelta < 0) {
+                uint256 decrease = uint256(-bondPowerDelta);
+                if (stats.totalBondPower >= decrease) {
+                    stats.totalBondPower -= decrease;
+                } else {
+                    stats.totalBondPower = 0;
+                }
+            }
+
+            // Update timestamp
+            stats.lastUpdateTime = block.timestamp;
+
+            // Move to next level
+            currentReferrer = genesisNode.getReferrer(currentReferrer);
+            depth++;
         }
     }
 

@@ -21,9 +21,15 @@ const bscTestnetRpcs = [
   'https://data-seed-prebsc-2-s1.binance.org:8545',
 ];
 
+// ⚠️ 验证环境变量（开发提醒）
+if (!import.meta.env.VITE_WALLETCONNECT_PROJECT_ID) {
+  console.error('❌ VITE_WALLETCONNECT_PROJECT_ID is not defined in .env.local');
+  console.error('Please copy .env.local.example to .env.local and fill in your WalletConnect Project ID');
+}
+
 const config = getDefaultConfig({
   appName: 'Ivy Protocol',
-  projectId: '3a8170812b534d0ff9d794f19a901d64',
+  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '',
   chains: [bscTestnet],
   transports: {
     [bscTestnet.id]: fallback(

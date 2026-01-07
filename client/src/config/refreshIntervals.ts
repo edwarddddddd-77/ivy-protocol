@@ -33,41 +33,40 @@ export const getConnectionType = (): '4g' | '3g' | 'slow-2g' | 'wifi' | 'unknown
 export const REFRESH_INTERVALS = {
   // 挖矿奖励实时数据（pendingIvy）
   PENDING_IVY: {
-    DESKTOP_FAST: 3000,      // 桌面端：3秒（当前设置）
-    DESKTOP_NORMAL: 10000,   // 桌面端：10秒（推荐）
-    MOBILE_WIFI: 10000,      // 移动端WiFi：10秒
+    DESKTOP: 10000,          // 桌面端：10秒（推荐）
+    MOBILE_WIFI: 15000,      // 移动端WiFi：15秒
     MOBILE_4G: 30000,        // 移动端4G：30秒
     MOBILE_SLOW: 60000,      // 移动端慢速网络：60秒
   },
 
   // 协议统计数据（dailyEmission, pidMultiplier等）
   PROTOCOL_STATS: {
-    DESKTOP: 5000,           // 桌面端：5秒
-    MOBILE: 15000,           // 移动端：15秒
+    DESKTOP: 10000,          // 桌面端：10秒（优化：从5秒增加）
+    MOBILE: 20000,           // 移动端：20秒（优化：从15秒增加）
   },
 
   // 用户余额
   USER_BALANCE: {
-    DESKTOP: 2000,           // 桌面端：2秒
-    MOBILE: 5000,            // 移动端：5秒
+    DESKTOP: 10000,          // 桌面端：10秒（优化：从2秒增加）
+    MOBILE: 15000,           // 移动端：15秒（优化：从5秒增加）
   },
 
   // 挖矿统计（bondPower等，变化较慢）
   MINING_STATS: {
-    DESKTOP: 5000,           // 桌面端：5秒
-    MOBILE: 10000,           // 移动端：10秒
+    DESKTOP: 10000,          // 桌面端：10秒（优化：从5秒增加）
+    MOBILE: 20000,           // 移动端：20秒（优化：从10秒增加）
   },
 
   // 锁仓信息（变化很慢）
   VESTING_INFO: {
-    DESKTOP: 5000,           // 桌面端：5秒
-    MOBILE: 10000,           // 移动端：10秒
+    DESKTOP: 10000,          // 桌面端：10秒（优化：从5秒增加）
+    MOBILE: 20000,           // 移动端：20秒（优化：从10秒增加）
   },
 
   // Genesis Node 总数（变化最慢）
   NODE_SUPPLY: {
-    DESKTOP: 10000,          // 桌面端：10秒
-    MOBILE: 30000,           // 移动端：30秒
+    DESKTOP: 30000,          // 桌面端：30秒（优化：从10秒增加）
+    MOBILE: 60000,           // 移动端：60秒（优化：从30秒增加）
   },
 };
 
@@ -88,7 +87,7 @@ export const getSmartRefreshInterval = (dataType: keyof typeof REFRESH_INTERVALS
   // pendingIvy 特殊处理（根据网络类型）
   if (dataType === 'PENDING_IVY') {
     if (!isMobile) {
-      return intervals.DESKTOP_NORMAL; // 推荐使用 10 秒
+      return intervals.DESKTOP; // 桌面端使用 10 秒
     }
 
     const connectionType = getConnectionType();

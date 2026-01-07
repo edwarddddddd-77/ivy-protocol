@@ -7,21 +7,32 @@ import { useIvyContract } from "@/hooks/useIvyContract";
 import { toast } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { isAddress } from "viem";
 
 export default function Home() {
   const [isHoveringMint, setIsHoveringMint] = useState(false);
   const [, setLocation] = useLocation();
   const { t } = useLanguage();
-  
-  // Capture Referral Code
+
+  // Capture Referral Code (with security validation)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref');
-    if (ref && ref.startsWith('0x')) {
-      localStorage.setItem('ivy_referrer', ref);
-      toast.success("Referral code activated");
+
+    // ✅ 严格验证：使用 viem 的 isAddress（包含 checksum 验证）
+    if (ref && isAddress(ref)) {
+      try {
+        localStorage.setItem('ivy_referrer', ref);
+        toast.success(t('referral.activated') || "Referral code activated");
+      } catch (error) {
+        console.error('Failed to save referrer to localStorage:', error);
+        toast.error('Failed to save referral code');
+      }
+    } else if (ref) {
+      // 如果提供了 ref 但格式不正确，警告用户
+      console.warn('Invalid referral address format:', ref);
     }
-  }, []);
+  }, [t]);
   
   const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, nodeTotalSupply, pidMultiplier, address } = useIvyContract();
 
