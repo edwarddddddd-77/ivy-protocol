@@ -92,6 +92,9 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     /// @notice Daily redeem limit (10% of TVL to prevent bank run)
     uint256 public constant DAILY_REDEEM_LIMIT_RATE = 1000;  // 10% in basis points
 
+    /// @notice Redeem penalty fee (2% to discourage bank runs)
+    uint256 public constant REDEEM_FEE_RATE = 200;  // 2% in basis points
+
     // ============ Enums ============
 
     /// @notice Bond status for redeem lifecycle management
@@ -119,7 +122,10 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     
     /// @notice GenesisNode contract address (for referral binding)
     address public genesisNode;
-    
+
+    /// @notice Photosynthesis contract address (for buyback & burn)
+    address public photosynthesis;
+
     /// @notice Token ID counter
     uint256 private _nextTokenId;
     
@@ -233,6 +239,13 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         uint256 principalClaimed
     );
 
+    /// @notice Event emitted when redeem fee is sent for buyback & burn
+    event RedeemFeeBurned(
+        uint256 indexed tokenId,
+        address indexed user,
+        uint256 feeAmount
+    );
+
     /// @notice Event emitted when user restakes to reactivate NFT
     event Restaked(
         uint256 indexed tokenId,
@@ -308,6 +321,14 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         require(_genesisNode != address(0), "Invalid GenesisNode");
         genesisNode = _genesisNode;
         emit GenesisNodeSet(_genesisNode);
+    }
+
+    /**
+     * @dev Set the Photosynthesis contract address (for buyback & burn)
+     */
+    function setPhotosynthesis(address _photosynthesis) external onlyOwner {
+        require(_photosynthesis != address(0), "Invalid Photosynthesis");
+        photosynthesis = _photosynthesis;
     }
 
     /**
@@ -639,10 +660,26 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         // ╚═══════════════════════════════════════════════════════════════╝
         totalPrincipal -= claimAmount;
 
-        // Transfer from RWA wallet to user
-        paymentToken.safeTransferFrom(rwaWallet, msg.sender, claimAmount);
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║          REDEEM PENALTY FEE (2% - 防止银行挤兑)                ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  Fee Purpose: Discourage bank runs + fund buyback & burn     ║
+        // ║  - 2% penalty on redemption amount                            ║
+        // ║  - Sent to Photosynthesis for IVY buyback & burn              ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        uint256 redeemFee = (claimAmount * REDEEM_FEE_RATE) / BASIS_POINTS;  // 2%
+        uint256 netAmount = claimAmount - redeemFee;
 
-        emit RedeemClaimed(tokenId, msg.sender, claimAmount);
+        // Transfer net amount to user
+        paymentToken.safeTransferFrom(rwaWallet, msg.sender, netAmount);
+
+        // Transfer fee to Photosynthesis for buyback & burn (if configured)
+        if (photosynthesis != address(0) && redeemFee > 0) {
+            paymentToken.safeTransferFrom(rwaWallet, photosynthesis, redeemFee);
+            emit RedeemFeeBurned(tokenId, msg.sender, redeemFee);
+        }
+
+        emit RedeemClaimed(tokenId, msg.sender, netAmount);
     }
 
     /**
