@@ -289,8 +289,8 @@ export default function Team() {
                 <ul className="space-y-1 text-sm text-slate-300 font-mono">
                   <li>• L1 Direct Referrals: <span className="text-[#39FF14]">10%</span> of their rewards</li>
                   <li>• L2 Indirect Referrals: <span className="text-[#39FF14]">5%</span> of their rewards</li>
-                  <li>• Team Bonus (GenesisNode): <span className="text-[#39FF14]">2%</span> from entire network</li>
-                  <li>• Peer Bonus: <span className="text-[#39FF14]">0.5%</span> from neighboring nodes</li>
+                  <li>• L3+ Infinite Team (GenesisNode): <span className="text-[#39FF14]">2%</span> from all downlines</li>
+                  <li>• Peer Level Bonus: <span className="text-[#39FF14]">0.5%</span> when downline also holds GenesisNode</li>
                 </ul>
               </div>
             </div>
