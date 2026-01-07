@@ -413,9 +413,8 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
         // ║  Prevents: Failed deposits due to residual allowance          ║
         // ╚═══════════════════════════════════════════════════════════════╝
 
-        // ✅ FIX: Reset approval to 0 first to avoid safeApprove revert
-        paymentToken.safeApprove(lpManager, 0);
-        paymentToken.safeApprove(lpManager, toLiquidity);
+        // ✅ FIX: Use forceApprove (OpenZeppelin v5 replacement for safeApprove)
+        paymentToken.forceApprove(lpManager, toLiquidity);
         ILPManager(lpManager).addLiquidityForBond(toLiquidity);
         
         // Mint Bond NFT

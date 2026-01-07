@@ -137,9 +137,9 @@ contract DividendPool is Ownable, ReentrancyGuard {
 
         // Calculate pending dividends with OLD bond power
         if (previousBondPower > 0) {
-            uint256 accumulated = (previousBondPower * accDividendPerShare) / ACC_DIVIDEND_PRECISION;
+            uint256 previousAccumulated = (previousBondPower * accDividendPerShare) / ACC_DIVIDEND_PRECISION;
             uint256 currentDebt = userDividendDebt[user];
-            pending = accumulated > currentDebt ? accumulated - currentDebt : 0;
+            pending = previousAccumulated > currentDebt ? previousAccumulated - currentDebt : 0;
         }
 
         // Update snapshot to NEW bond power

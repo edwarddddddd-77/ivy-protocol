@@ -308,9 +308,8 @@ contract LPManager is Ownable, ReentrancyGuard {
         // ║  Fix #2: Add 5% slippage protection (MEV defense)            ║
         // ╚═══════════════════════════════════════════════════════════════╝
 
-        // ✅ FIX #8: Reset approval to 0 first to avoid safeApprove revert
-        usdt.safeApprove(uniswapRouter, 0);
-        usdt.safeApprove(uniswapRouter, usdtAmount);
+        // ✅ FIX #8: Use forceApprove (OpenZeppelin v5 replacement for safeApprove)
+        usdt.forceApprove(uniswapRouter, usdtAmount);
 
         // Prepare swap path: USDT → IVY
         address[] memory path = new address[](2);
@@ -345,11 +344,9 @@ contract LPManager is Ownable, ReentrancyGuard {
         // ║  Fix #2: Add 5% slippage protection (MEV defense)            ║
         // ╚═══════════════════════════════════════════════════════════════╝
 
-        // ✅ FIX #8: Reset approvals to 0 first to avoid safeApprove revert
-        ivyToken.safeApprove(uniswapRouter, 0);
-        ivyToken.safeApprove(uniswapRouter, ivyAmount);
-        usdt.safeApprove(uniswapRouter, 0);
-        usdt.safeApprove(uniswapRouter, usdtAmount);
+        // ✅ FIX #8: Use forceApprove (OpenZeppelin v5 replacement for safeApprove)
+        ivyToken.forceApprove(uniswapRouter, ivyAmount);
+        usdt.forceApprove(uniswapRouter, usdtAmount);
 
         // ✅ FIX #2: Calculate minimum amounts with 5% slippage tolerance
         uint256 minIvyAmount = (ivyAmount * 9500) / 10000;   // 95% of desired

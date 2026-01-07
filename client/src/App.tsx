@@ -10,6 +10,7 @@ import { ReferralProvider } from "./contexts/ReferralContext";
 import Home from "./pages/Home";
 import Nodes from "./pages/Nodes";
 import Yield from "./pages/Yield";
+import Team from "./pages/Team";
 
 function Router() {
   return (
@@ -17,6 +18,7 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/nodes"} component={Nodes} />
       <Route path={"/yield"} component={Yield} />
+      <Route path={"/team"} component={Team} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

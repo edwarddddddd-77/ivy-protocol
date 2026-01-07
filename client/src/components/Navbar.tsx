@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { FaucetModal } from '@/components/FaucetModal';
 
 interface NavbarProps {
-  currentPage?: 'home' | 'nodes' | 'yield';
+  currentPage?: 'home' | 'nodes' | 'yield' | 'team';
 }
 
 export function Navbar({ currentPage }: NavbarProps) {
@@ -21,6 +21,7 @@ export function Navbar({ currentPage }: NavbarProps) {
     { key: 'protocol', label: t('nav.protocol'), path: '/', page: 'home' as const },
     { key: 'nodes', label: t('nav.nodes'), path: '/nodes', page: 'nodes' as const },
     { key: 'yield', label: t('nav.yield'), path: '/yield', page: 'yield' as const },
+    { key: 'team', label: t('nav.team'), path: '/team', page: 'team' as const },
   ];
 
   return (
