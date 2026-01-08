@@ -62,6 +62,9 @@ contract LPManager is Ownable, ReentrancyGuard {
     /// @notice IvyBond contract (authorized caller)
     address public ivyBond;
 
+    /// @notice Team wallet for LP fee collection (100% of trading fees)
+    address public teamWallet;
+
     /// @notice Total reserve IVY used so far
     uint256 public reserveUsed;
 
@@ -73,6 +76,9 @@ contract LPManager is Ownable, ReentrancyGuard {
 
     /// @notice Total IVY bought from market
     uint256 public totalMarketBought;
+
+    /// @notice Total LP fees collected for team (in USDT)
+    uint256 public totalFeesCollected;
 
     /// @notice Emergency pause flag
     bool public paused;
@@ -89,6 +95,13 @@ contract LPManager is Ownable, ReentrancyGuard {
     event StageChanged(uint256 newStage, uint256 reserveUsed);
     event EmergencyPaused(address indexed by);
     event EmergencyUnpaused(address indexed by);
+    event FeesCollected(
+        uint256 lpTokensBurned,
+        uint256 ivyReceived,
+        uint256 usdtReceived,
+        uint256 sentToTeam
+    );
+    event TeamWalletSet(address indexed newTeamWallet);
 
     // ============ Modifiers ============
 
@@ -142,6 +155,15 @@ contract LPManager is Ownable, ReentrancyGuard {
     }
 
     /**
+     * @dev Set team wallet for LP fee collection (100% of trading fees)
+     */
+    function setTeamWallet(address _teamWallet) external onlyOwner {
+        require(_teamWallet != address(0), "Invalid team wallet");
+        teamWallet = _teamWallet;
+        emit TeamWalletSet(_teamWallet);
+    }
+
+    /**
      * @dev Update Uniswap router (in case of migration)
      */
     function setUniswapRouter(address _router) external onlyOwner {
@@ -163,6 +185,65 @@ contract LPManager is Ownable, ReentrancyGuard {
     function unpause() external onlyOwner {
         paused = false;
         emit EmergencyUnpaused(msg.sender);
+    }
+
+    /**
+     * @notice Collect LP trading fees and send 100% to team wallet
+     * @dev Removes LP tokens, extracts accumulated fees, sends to team
+     * @param lpAmount Amount of LP tokens to burn (0 = all balance)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║             LP FEE COLLECTION MECHANISM                       ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  How Uniswap V2 Fees Work:                                    ║
+     * ║  - 0.3% fee on every trade                                    ║
+     * ║  - Fees accumulate in the pool                                ║
+     * ║  - LP token value increases over time                         ║
+     * ║  - Removing liquidity captures accumulated fees               ║
+     * ║                                                               ║
+     * ║  Distribution: 100% to Team Wallet                            ║
+     * ║  - USDT: 100% → teamWallet (for operational costs)            ║
+     * ║  - IVY: 100% → teamWallet (can be re-deployed or sold)        ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function collectFees(uint256 lpAmount) external onlyOwner nonReentrant {
+        require(teamWallet != address(0), "Team wallet not set");
+
+        // Get LP token balance
+        IERC20 lpToken = IERC20(lpPair);
+        uint256 lpBalance = lpToken.balanceOf(address(this));
+        require(lpBalance > 0, "No LP tokens to collect");
+
+        // If lpAmount is 0, collect all LP tokens
+        uint256 tokensToRemove = lpAmount == 0 ? lpBalance : lpAmount;
+        require(tokensToRemove <= lpBalance, "Insufficient LP balance");
+
+        // Approve router to spend LP tokens
+        lpToken.forceApprove(uniswapRouter, tokensToRemove);
+
+        // Remove liquidity and get IVY + USDT back
+        (uint256 ivyReceived, uint256 usdtReceived) = IUniswapV2Router(uniswapRouter).removeLiquidity(
+            address(ivyToken),
+            address(usdt),
+            tokensToRemove,
+            0,  // Accept any amount (fees are profit, no loss risk)
+            0,  // Accept any amount
+            address(this),
+            block.timestamp + 300
+        );
+
+        // Send 100% of USDT to team wallet
+        if (usdtReceived > 0) {
+            usdt.safeTransfer(teamWallet, usdtReceived);
+            totalFeesCollected += usdtReceived;
+        }
+
+        // Send 100% of IVY to team wallet
+        if (ivyReceived > 0) {
+            ivyToken.safeTransfer(teamWallet, ivyReceived);
+        }
+
+        emit FeesCollected(tokensToRemove, ivyReceived, usdtReceived, usdtReceived);
     }
 
     // ============ Core LP Logic ============
@@ -407,6 +488,15 @@ contract LPManager is Ownable, ReentrancyGuard {
         reservePercent = reserveRatio / 100;  // Convert to percentage
         buyPercent = 100 - reservePercent;
     }
+
+    /**
+     * @dev Get LP token balance (represents accumulated fees + principal)
+     * @return lpBalance Amount of LP tokens held by this contract
+     */
+    function getLPTokenBalance() external view returns (uint256 lpBalance) {
+        IERC20 lpToken = IERC20(lpPair);
+        lpBalance = lpToken.balanceOf(address(this));
+    }
 }
 
 // ============ Interfaces ============
@@ -426,6 +516,16 @@ interface IUniswapV2Router {
         address to,
         uint256 deadline
     ) external returns (uint256 amountA, uint256 amountB, uint256 liquidity);
+
+    function removeLiquidity(
+        address tokenA,
+        address tokenB,
+        uint256 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        address to,
+        uint256 deadline
+    ) external returns (uint256 amountA, uint256 amountB);
 
     function swapExactTokensForTokens(
         uint256 amountIn,
