@@ -90,6 +90,7 @@ export function TreasuryPanel() {
   const { writeContract: approveUSDT, data: approveHash } = useWriteContract();
   const { writeContract: deposit, data: depositHash } = useWriteContract();
   const { writeContract: compound, data: compoundHash } = useWriteContract();
+  const { writeContract: syncUser, data: syncHash } = useWriteContract();
 
   // Wait for transactions
   const { isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
@@ -102,6 +103,10 @@ export function TreasuryPanel() {
 
   const { isLoading: isCompoundLoading, isSuccess: isCompoundSuccess } = useWaitForTransactionReceipt({
     hash: compoundHash,
+  });
+
+  const { isLoading: isSyncLoading, isSuccess: isSyncSuccess } = useWaitForTransactionReceipt({
+    hash: syncHash,
   });
 
   // Parse fund allocation data (whitepaper compliant)
@@ -210,6 +215,17 @@ export function TreasuryPanel() {
     if (isDepositSuccess && isDepositing) {
       setIsDepositing(false);
       toast.success('Bond NFT Minted! 🎉');
+
+      // ✅ Critical: Sync user to IvyCore after deposit
+      // This updates mining power in IvyCore so rewards start accumulating
+      toast.info('Syncing mining power...');
+      syncUser({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'syncUser',
+        args: [address as `0x${string}`],
+      });
+
       setDepositAmount('');
       refetchAllocation();
       refetchBondIds();
@@ -217,6 +233,13 @@ export function TreasuryPanel() {
       refetchUsdtBalance();
     }
   }, [isDepositSuccess, isDepositing]);
+
+  useEffect(() => {
+    if (isSyncSuccess) {
+      toast.success('Mining power synced! Rewards will start accumulating. ⚡');
+      refetchMining();
+    }
+  }, [isSyncSuccess]);
 
   useEffect(() => {
     if (isCompoundSuccess && isCompounding) {
@@ -425,6 +448,34 @@ export function TreasuryPanel() {
           >
             Compound into Bond NFT
           </Button>
+        </div>
+      )}
+
+      {/* Manual Sync Button (if user has bonds but no mining power) */}
+      {bondCount > 0 && baseMiningPower === 0 && (
+        <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="text-sm font-bold text-yellow-400">Mining Power Not Synced</div>
+              <div className="text-[10px] text-gray-400">Click below to start earning rewards</div>
+            </div>
+            <Button
+              size="sm"
+              className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30"
+              onClick={() => {
+                syncUser({
+                  address: addresses.IvyCore as `0x${string}`,
+                  abi: abis.IvyCore,
+                  functionName: 'syncUser',
+                  args: [address as `0x${string}`],
+                });
+                toast.info('Syncing mining power...');
+              }}
+              disabled={isSyncLoading}
+            >
+              {isSyncLoading ? 'Syncing...' : 'Sync Now'}
+            </Button>
+          </div>
         </div>
       )}
 
