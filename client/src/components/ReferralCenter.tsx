@@ -48,7 +48,7 @@ export function ReferralCenter() {
   const estimatedPendingReferralRewards = directReferrals > 0 ? pendingReward * 0.1 * directReferrals : 0;
 
   const referralLink = typeof window !== 'undefined' && address
-    ? `${window.location.origin}?ref=${address}`
+    ? `https://www.ivyprotocol.io?ref=${address}`
     : t('referral.connect_to_generate');
 
   const handleCopy = () => {

@@ -11,19 +11,17 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTeamStats } from "@/hooks/useTeamStats";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
-import { useReferral } from "@/contexts/ReferralContext";
-
 export default function Team() {
   const { t } = useLanguage();
   const { address } = useAccount();
   const { summary, teamStats, directReferrals, performance } = useTeamStats();
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const { referralLink } = useReferral();
 
   // Copy referral link
   const handleCopyReferral = () => {
-    if (referralLink) {
-      navigator.clipboard.writeText(referralLink);
+    if (address) {
+      const link = `https://www.ivyprotocol.io?ref=${address}`;
+      navigator.clipboard.writeText(link);
       toast.success(t('team.link_copied'));
       setCopiedIndex(-1);
       setTimeout(() => setCopiedIndex(null), 2000);
@@ -93,7 +91,7 @@ export default function Team() {
                     {t('team.referral_link')}
                   </p>
                   <p className="text-sm font-mono text-[#39FF14] break-all">
-                    {referralLink || `${window.location.origin}/?ref=${address}`}
+                    {address ? `https://www.ivyprotocol.io?ref=${address}` : 'Connect wallet to generate link'}
                   </p>
                 </div>
                 <Button
