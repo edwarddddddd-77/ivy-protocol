@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ivy Protocol - Mining Sync Tool</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0f172a;
+            color: #e0e0e0;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            background: #1e293b;
+            border: 2px solid #39FF14;
+            border-radius: 8px;
+            padding: 30px;
+        }
+        h1 {
+            color: #39FF14;
+            margin-top: 0;
+        }
+        button {
+            background: #39FF14;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 10px 5px;
+            font-family: monospace;
+        }
+        button:hover {
+            background: #2ed10f;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .info {
+            background: #334155;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .label {
+            color: #94a3b8;
+            font-size: 12px;
+        }
+        .value {
+            color: #39FF14;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .warning {
+            background: #7c2d12;
+            border: 2px solid #ea580c;
+            color: #fed7aa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .success {
+            background: #14532d;
+            border: 2px solid #22c55e;
+            color: #bbf7d0;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        #log {
+            background: #000;
+            color: #39FF14;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ Ivy Protocol Mining Diagnostic Tool</h1>
+
+        <button id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
+
+        <div id="status" style="display:none;">
+            <div class="info">
+                <div class="label">Connected Address:</div>
+                <div id="address" style="font-size: 14px; color: #fff; margin-top: 5px;"></div>
+            </div>
+
+            <div class="info">
+                <div class="label">IvyBond Bond Power (from NFT):</div>
+                <div id="bondPower" class="value">Loading...</div>
+            </div>
+
+            <div class="info">
+                <div class="label">IvyCore Mining Power (synced):</div>
+                <div id="miningPower" class="value">Loading...</div>
+            </div>
+
+            <div class="info">
+                <div class="label">Pending IVY Rewards:</div>
+                <div id="pendingIvy" class="value">Loading...</div>
+            </div>
+
+            <div class="info">
+                <div class="label">Total Pool Bond Power:</div>
+                <div id="totalPoolPower" class="value">Loading...</div>
+            </div>
+
+            <div id="warningBox" style="display:none;" class="warning">
+                ⚠️ <strong>Mining Power Not Synced!</strong><br>
+                IvyBond shows you have power, but IvyCore doesn't know about it.<br>
+                Click "Sync Mining Power" below to fix this.
+            </div>
+
+            <div id="successBox" style="display:none;" class="success">
+                ✅ <strong>Mining Power Synced!</strong><br>
+                Your rewards should start accumulating now. Wait 1-2 minutes and click "Refresh Data".
+            </div>
+
+            <button onclick="checkStatus()">Refresh Data</button>
+            <button id="syncBtn" onclick="syncMiningPower()" style="display:none;">Sync Mining Power</button>
+        </div>
+
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const ADDRESSES = {
+            IvyCore: "0xf607EEf5390298D66F5B6Ef22C81515Add90B06b",
+            IvyBond: "0x8C3e30B1d21Bd2a89d16613f546dD384FCD1d029"
+        };
+
+        const IVY_CORE_ABI = [
+            "function userInfo(address) view returns (uint256 bondPower, uint256 rewardDebt, uint256 pendingVested, uint256 totalClaimed, uint256 referralEarnings)",
+            "function pendingIvy(address) view returns (uint256)",
+            "function totalPoolBondPower() view returns (uint256)",
+            "function syncUser(address) external"
+        ];
+
+        const IVY_BOND_ABI = [
+            "function getBondPower(address) view returns (uint256)"
+        ];
+
+        let provider, signer, address;
+        let ivyCore, ivyBond;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function connectWallet() {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    alert('Please install MetaMask!');
+                    return;
+                }
+
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = provider.getSigner();
+                address = await signer.getAddress();
+
+                const network = await provider.getNetwork();
+                if (network.chainId !== 97) {
+                    alert('Please switch to BSC Testnet (Chain ID: 97)');
+                    return;
+                }
+
+                ivyCore = new ethers.Contract(ADDRESSES.IvyCore, IVY_CORE_ABI, provider);
+                ivyBond = new ethers.Contract(ADDRESSES.IvyBond, IVY_BOND_ABI, provider);
+
+                document.getElementById('address').textContent = address;
+                document.getElementById('status').style.display = 'block';
+                document.getElementById('connectBtn').style.display = 'none';
+
+                log('✅ Wallet connected: ' + address);
+                await checkStatus();
+
+            } catch (error) {
+                log('❌ Error connecting wallet: ' + error.message);
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                log('🔍 Checking mining status...');
+
+                // Get bond power from IvyBond
+                const bondPower = await ivyBond.getBondPower(address);
+                const bondPowerNum = parseFloat(ethers.utils.formatEther(bondPower));
+                document.getElementById('bondPower').textContent = bondPowerNum.toLocaleString() + ' Power';
+                log('IvyBond Bond Power: ' + bondPowerNum);
+
+                // Get mining power from IvyCore
+                const userInfo = await ivyCore.userInfo(address);
+                const miningPowerNum = parseFloat(ethers.utils.formatEther(userInfo.bondPower));
+                document.getElementById('miningPower').textContent = miningPowerNum.toLocaleString() + ' Power';
+                log('IvyCore Mining Power: ' + miningPowerNum);
+
+                // Get pending rewards
+                const pending = await ivyCore.pendingIvy(address);
+                const pendingNum = parseFloat(ethers.utils.formatEther(pending));
+                document.getElementById('pendingIvy').textContent = pendingNum.toFixed(4) + ' IVY';
+                log('Pending IVY: ' + pendingNum.toFixed(4));
+
+                // Get total pool power
+                const totalPool = await ivyCore.totalPoolBondPower();
+                const totalPoolNum = parseFloat(ethers.utils.formatEther(totalPool));
+                document.getElementById('totalPoolPower').textContent = totalPoolNum.toLocaleString() + ' Power';
+                log('Total Pool Power: ' + totalPoolNum);
+
+                // Check if sync is needed
+                if (bondPowerNum > 0 && miningPowerNum === 0) {
+                    document.getElementById('warningBox').style.display = 'block';
+                    document.getElementById('syncBtn').style.display = 'inline-block';
+                    document.getElementById('successBox').style.display = 'none';
+                    log('⚠️ WARNING: Mining power not synced! Click "Sync Mining Power" button.');
+                } else if (bondPowerNum > 0 && miningPowerNum > 0) {
+                    document.getElementById('warningBox').style.display = 'none';
+                    document.getElementById('syncBtn').style.display = 'none';
+                    document.getElementById('successBox').style.display = 'block';
+                    log('✅ Mining power synced. Rewards accumulating at ' + ((miningPowerNum / totalPoolNum) * 30000).toFixed(2) + ' IVY/day (estimated)');
+                } else {
+                    document.getElementById('warningBox').style.display = 'none';
+                    document.getElementById('syncBtn').style.display = 'none';
+                    document.getElementById('successBox').style.display = 'none';
+                    log('ℹ️ No Bond NFTs found. Deposit USDT first to mint a Bond NFT.');
+                }
+
+            } catch (error) {
+                log('❌ Error checking status: ' + error.message);
+            }
+        }
+
+        async function syncMiningPower() {
+            try {
+                log('🔄 Syncing mining power...');
+                document.getElementById('syncBtn').disabled = true;
+                document.getElementById('syncBtn').textContent = 'Syncing...';
+
+                const ivyCoreWithSigner = ivyCore.connect(signer);
+                const tx = await ivyCoreWithSigner.syncUser(address);
+
+                log('📤 Transaction sent: ' + tx.hash);
+                log('⏳ Waiting for confirmation...');
+
+                await tx.wait();
+
+                log('✅ Mining power synced successfully!');
+                log('⏳ Waiting 5 seconds before refreshing data...');
+
+                setTimeout(async () => {
+                    await checkStatus();
+                    document.getElementById('syncBtn').disabled = false;
+                    document.getElementById('syncBtn').textContent = 'Sync Mining Power';
+                }, 5000);
+
+            } catch (error) {
+                log('❌ Error syncing: ' + error.message);
+                document.getElementById('syncBtn').disabled = false;
+                document.getElementById('syncBtn').textContent = 'Sync Mining Power';
+            }
+        }
+    </script>
+</body>
+</html>
