@@ -105,11 +105,12 @@ export function TreasuryPanel() {
   });
 
   // Parse fund allocation data (whitepaper compliant)
+  // Contract returns: [totalDeposited, redeemablePrincipal(40%), miningPower(50%), donatedAmount(10%)]
   const totalDeposited = fundAllocation ? Number((fundAllocation as any)[0]) / 1e18 : 0;
-  const miningPrincipal = fundAllocation ? Number((fundAllocation as any)[1]) / 1e18 : 0;  // 50%
-  const rwaAssets = fundAllocation ? Number((fundAllocation as any)[2]) / 1e18 : 0;        // 40%
-  const reserveAmount = fundAllocation ? Number((fundAllocation as any)[3]) / 1e18 : 0;    // 10%
-  const baseMiningPower = fundAllocation ? Number((fundAllocation as any)[4]) / 1e18 : 0;  // Bond Power
+  const rwaAssets = fundAllocation ? Number((fundAllocation as any)[1]) / 1e18 : 0;        // 40% (redeemablePrincipal)
+  const baseMiningPower = fundAllocation ? Number((fundAllocation as any)[2]) / 1e18 : 0;  // 50% (miningPower = Bond Power)
+  const reserveAmount = fundAllocation ? Number((fundAllocation as any)[3]) / 1e18 : 0;    // 10% (donatedAmount)
+  const miningPrincipal = baseMiningPower;  // For display consistency (50% LP = mining principal)
 
   const pendingReward = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
   const totalClaimed = miningStats ? Number((miningStats as any)[1]) / 1e18 : 0;
