@@ -117,9 +117,12 @@ export function TreasuryPanel() {
   const reserveAmount = fundAllocation ? Number((fundAllocation as any)[3]) / 1e18 : 0;    // 10% (donatedAmount)
   const miningPrincipal = baseMiningPower;  // For display consistency (50% LP = mining principal)
 
-  const pendingReward = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
-  const totalClaimed = miningStats ? Number((miningStats as any)[1]) / 1e18 : 0;
-  const referralEarnings = miningStats ? Number((miningStats as any)[2]) / 1e18 : 0;
+  // Parse getUserMiningStats return: [bondPower, pendingRewards, totalVested, totalClaimed, claimableNow]
+  const syncedBondPower = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;  // IvyCore synced power
+  const pendingReward = miningStats ? Number((miningStats as any)[1]) / 1e18 : 0;
+  const totalVested = miningStats ? Number((miningStats as any)[2]) / 1e18 : 0;
+  const totalClaimed = miningStats ? Number((miningStats as any)[3]) / 1e18 : 0;
+  const claimableNow = miningStats ? Number((miningStats as any)[4]) / 1e18 : 0;
   
   // Boost percentages
   const userBoostBps = totalBoost ? Number(totalBoost as any) : 0;
@@ -451,8 +454,8 @@ export function TreasuryPanel() {
         </div>
       )}
 
-      {/* Manual Sync Button (if user has bonds but no mining power) */}
-      {bondCount > 0 && baseMiningPower === 0 && (
+      {/* Manual Sync Button (if user has bonds but IvyCore not synced) */}
+      {bondCount > 0 && baseMiningPower > 0 && syncedBondPower === 0 && (
         <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
           <div className="flex items-center justify-between mb-2">
             <div>
