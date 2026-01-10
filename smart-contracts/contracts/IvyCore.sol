@@ -1110,9 +1110,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // 1. Check Ownership
         require(ivyBond.ownerOfBond(tokenId) == msg.sender, "Not bond owner");
         updatePool();
-        
+
         UserInfo storage user = userInfo[msg.sender];
-        
+
         // 2. Calculate Pending (Unlocked + Vested)
         uint256 pending = (user.bondPower * accIvyPerShare / ACC_IVY_PRECISION) - user.rewardDebt;
         uint256 totalPending = pending + user.pendingVested;
@@ -1147,7 +1147,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // Note: Oracle returns price with 18 decimals (1e18 = $1.0)
         uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
         require(ivyPrice > 0, "Oracle price is zero");
-        
+
         // Value in USDT = (Amount * Price) / 1e18
         uint256 valueInUSDT = (totalPending * ivyPrice) / 10**18;
 
@@ -1163,6 +1163,82 @@ contract IvyCore is Ownable, ReentrancyGuard {
         ivyBond.addCompoundPower(tokenId, powerToAdd);
 
         emit VestedCompounded(msg.sender, tokenId, totalPending, powerToAdd);
+    }
+
+    /**
+     * @dev Compound partial vIVY rewards into Bond NFT with 10% bonus
+     * @param tokenId Bond NFT token ID
+     * @param amount Amount of vIVY to compound (user can choose partial amount)
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║           PARTIAL COMPOUND MECHANISM                          ║
+     * ╠═══════════════════════════════════════════════════════════════╣
+     * ║  User Flow:                                                   ║
+     * ║  1. User has 13,000 vIVY pending rewards                      ║
+     * ║  2. User chooses to compound 10,000 vIVY (keep 3,000)         ║
+     * ║  3. vIVY accounting: -10,000 (internal ledger)                ║
+     * ║  4. Mint real IVY tokens: +10,000 IVY                         ║
+     * ║  5. Burn IVY tokens: 10,000 IVY → 0xdead                      ║
+     * ║  6. Query IVY price: 1 IVY = 1 USDT (testnet)                 ║
+     * ║  7. Calculate power: 10,000 × 1 × 1.1 = 11,000 Power          ║
+     * ║  8. Add power to Bond NFT                                     ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     */
+    function compoundVestedPartial(uint256 tokenId, uint256 amount) external nonReentrant {
+        // 1. Check Ownership
+        require(ivyBond.ownerOfBond(tokenId) == msg.sender, "Not bond owner");
+        require(amount > 0, "Amount must be > 0");
+        updatePool();
+
+        UserInfo storage user = userInfo[msg.sender];
+
+        // 2. Calculate Available vIVY
+        uint256 pending = (user.bondPower * accIvyPerShare / ACC_IVY_PRECISION) - user.rewardDebt;
+        uint256 totalAvailable = pending + user.pendingVested;
+        require(amount <= totalAvailable, "Insufficient vIVY balance");
+
+        // 3. Deduct vIVY from internal accounting
+        // Priority: deduct from pendingVested first, then from pending
+        if (amount <= user.pendingVested) {
+            // Case 1: Amount fits within pendingVested
+            user.pendingVested -= amount;
+        } else {
+            // Case 2: Need to deduct from both pendingVested and pending
+            uint256 remainingAmount = amount - user.pendingVested;
+            user.pendingVested = 0;
+
+            // Update rewardDebt to reflect the pending amount we're consuming
+            user.rewardDebt += remainingAmount;
+        }
+
+        // 4. Check mining cap
+        uint256 compoundAmount = amount;
+        if (totalMinted + compoundAmount > MINING_CAP) {
+            compoundAmount = MINING_CAP > totalMinted ? MINING_CAP - totalMinted : 0;
+            require(compoundAmount > 0, "Mining cap reached");
+        }
+
+        // 5. Mint real IVY tokens from vIVY accounting
+        totalMinted += compoundAmount;
+        ivyToken.mint(address(this), compoundAmount);
+
+        // 6. Query IVY price from oracle
+        uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
+        require(ivyPrice > 0, "Oracle price is zero");
+
+        // 7. Calculate USDT value
+        uint256 valueInUSDT = (compoundAmount * ivyPrice) / 10**18;
+
+        // 8. Calculate power with 10% bonus
+        uint256 powerToAdd = (valueInUSDT * 110) / 100;
+
+        // 9. Burn IVY tokens (deflationary)
+        ivyToken.transfer(address(0xdead), compoundAmount);
+
+        // 10. Add power to Bond NFT
+        ivyBond.addCompoundPower(tokenId, powerToAdd);
+
+        emit VestedCompounded(msg.sender, tokenId, compoundAmount, powerToAdd);
     }
 
     // ╔═══════════════════════════════════════════════════════════════╗

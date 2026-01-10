@@ -11,6 +11,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTeamStats } from "@/hooks/useTeamStats";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
+import { PowerLeaderboard } from "@/components/PowerLeaderboard";
 export default function Team() {
   const { t } = useLanguage();
   const { address } = useAccount();
@@ -294,6 +295,15 @@ export default function Team() {
               </div>
             </div>
           </Card>
+        </motion.div>
+
+        {/* Power Leaderboard */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8 }}
+        >
+          <PowerLeaderboard />
         </motion.div>
       </main>
     </div>

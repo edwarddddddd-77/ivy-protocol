@@ -16,12 +16,14 @@ export function TreasuryPanel() {
   const { t } = useLanguage();
   const { referrer } = useReferral();
   const [depositAmount, setDepositAmount] = useState('');
-  const [compoundAmount, setCompoundAmount] = useState('');
   const [selectedBondId, setSelectedBondId] = useState<number | null>(null);
   const [isApproving, setIsApproving] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
   const [isCompounding, setIsCompounding] = useState(false);
   const [showCompoundModal, setShowCompoundModal] = useState(false);
+  const [compoundAmount, setCompoundAmount] = useState('');
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawMode, setWithdrawMode] = useState<'standard' | 'instant' | null>(null);
 
   // Read user's fund allocation (whitepaper compliant)
   const { data: fundAllocation, refetch: refetchAllocation } = useReadContract({
@@ -48,6 +50,30 @@ export function TreasuryPanel() {
     functionName: 'getUserMiningStats',
     args: [address],
     query: { enabled: !!address && isConnected }
+  });
+
+  // Read vesting info (for withdraw functionality)
+  const { data: vestingInfo, refetch: refetchVesting } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: 'getVestingInfo',
+    args: [address],
+    query: {
+      enabled: !!address && isConnected,
+      refetchInterval: 10000,
+    }
+  });
+
+  // Read total pool bond power (for user power percentage)
+  const { data: totalPoolBondPower } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: 'totalPoolBondPower',
+    args: [],
+    query: {
+      enabled: isConnected,
+      refetchInterval: 10000,
+    }
   });
 
   // Read USDT balance
@@ -89,8 +115,10 @@ export function TreasuryPanel() {
   // Write contracts
   const { writeContract: approveUSDT, data: approveHash } = useWriteContract();
   const { writeContract: deposit, data: depositHash } = useWriteContract();
-  const { writeContract: compound, data: compoundHash } = useWriteContract();
+  const { writeContract: compoundVested, data: compoundHash } = useWriteContract();
   const { writeContract: syncUser, data: syncHash } = useWriteContract();
+  const { writeContract: claimVested, data: claimHash } = useWriteContract();
+  const { writeContract: instantCashOut, data: cashOutHash } = useWriteContract();
 
   // Wait for transactions
   const { isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
@@ -109,6 +137,14 @@ export function TreasuryPanel() {
     hash: syncHash,
   });
 
+  const { isLoading: isClaimLoading, isSuccess: isClaimSuccess } = useWaitForTransactionReceipt({
+    hash: claimHash,
+  });
+
+  const { isLoading: isCashOutLoading, isSuccess: isCashOutSuccess } = useWaitForTransactionReceipt({
+    hash: cashOutHash,
+  });
+
   // Parse fund allocation data (whitepaper compliant)
   // Contract returns: [totalDeposited, redeemablePrincipal(40%), miningPower(50%), donatedAmount(10%)]
   const totalDeposited = fundAllocation ? Number((fundAllocation as any)[0]) / 1e18 : 0;
@@ -123,6 +159,24 @@ export function TreasuryPanel() {
   const totalVested = miningStats ? Number((miningStats as any)[2]) / 1e18 : 0;
   const totalClaimed = miningStats ? Number((miningStats as any)[3]) / 1e18 : 0;
   const claimableNow = miningStats ? Number((miningStats as any)[4]) / 1e18 : 0;
+
+  // Parse getVestingInfo return: [totalVested, totalClaimed, vestingStartTime, claimableNow, remainingLocked, vestingProgress]
+  const vestingStartTime = vestingInfo ? Number((vestingInfo as any)[2]) : 0;
+  const remainingToVest = vestingInfo ? Number((vestingInfo as any)[0]) / 1e18 - Number((vestingInfo as any)[1]) / 1e18 : 0;
+
+  // Calculate time until unlock (30 days = 2592000 seconds)
+  const VESTING_PERIOD = 30 * 24 * 60 * 60; // 30 days in seconds
+  const now = Math.floor(Date.now() / 1000);
+  const timeUntilUnlock = vestingStartTime > 0 ? Math.max(0, (vestingStartTime + VESTING_PERIOD) - now) : 0;
+  const isUnlocked = timeUntilUnlock === 0 && remainingToVest > 0;
+
+  // IVY Price (Testnet: hardcoded 1 USDT, Mainnet: from oracle)
+  const ivyPriceUSDT = 1; // TODO: Read from oracle on mainnet
+  const ivyToPowerRate = ivyPriceUSDT * 1.1; // 1 IVY = price × 1.1 Power (with 10% compound bonus)
+
+  // Calculate user power percentage
+  const totalPoolPower = totalPoolBondPower ? Number(totalPoolBondPower as any) / 1e18 : 0;
+  const userPowerPercentage = totalPoolPower > 0 ? (syncedBondPower / totalPoolPower) * 100 : 0;
   
   // Boost percentages
   const userBoostBps = totalBoost ? Number(totalBoost as any) : 0;
@@ -188,20 +242,82 @@ export function TreasuryPanel() {
 
   // Handle compound
   const handleCompound = async () => {
-    if (!address || !compoundAmount || selectedBondId === null) return;
-    
+    if (!address || selectedBondId === null) return;
+
+    // Validate compound amount
+    const amount = Number(compoundAmount);
+    if (!compoundAmount || amount <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    if (amount > pendingReward) {
+      toast.error(`Amount exceeds available vIVY (${pendingReward.toFixed(4)})`);
+      return;
+    }
+
     setIsCompounding(true);
     try {
-      compound({
-        address: addresses.IvyBond as `0x${string}`,
-        abi: abis.IvyBond,
-        functionName: 'compound',
+      compoundVested({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'compoundVestedPartial',
         args: [BigInt(selectedBondId), parseEther(compoundAmount)],
       });
-      toast.info('Compounding into Bond NFT...');
+      toast.info(`Compounding ${Number(compoundAmount).toFixed(4)} vIVY into Bond NFT...`);
     } catch (error) {
       toast.error('Compound failed');
       setIsCompounding(false);
+    }
+  };
+
+  // Handle standard claim (30 days unlock)
+  const handleClaimVested = async () => {
+    if (!address) return;
+
+    if (!isUnlocked) {
+      toast.error('Vesting period not completed yet. Please wait or use Instant Cash Out.');
+      return;
+    }
+
+    if (remainingToVest === 0) {
+      toast.error('Nothing to claim');
+      return;
+    }
+
+    try {
+      claimVested({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'claimVested',
+        args: [],
+      });
+      toast.info(`Claiming ${remainingToVest.toFixed(4)} IVY...`);
+    } catch (error) {
+      toast.error('Claim failed');
+    }
+  };
+
+  // Handle instant cash out (50% penalty)
+  const handleInstantCashOut = async () => {
+    if (!address) return;
+
+    if (remainingToVest === 0) {
+      toast.error('Nothing to cash out');
+      return;
+    }
+
+    try {
+      instantCashOut({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'instantCashOut',
+        args: [],
+      });
+      const received = remainingToVest * 0.5;
+      toast.info(`Instant cash out: ${received.toFixed(4)} IVY (50% penalty applied)...`);
+    } catch (error) {
+      toast.error('Cash out failed');
     }
   };
 
@@ -247,14 +363,32 @@ export function TreasuryPanel() {
   useEffect(() => {
     if (isCompoundSuccess && isCompounding) {
       setIsCompounding(false);
-      toast.success('Compound Successful! +10% Bonus Power');
-      setCompoundAmount('');
+      toast.success('vIVY Compounded Successfully! +10% Bonus Power 🎉');
       setShowCompoundModal(false);
+      setCompoundAmount('');
       refetchAllocation();
       refetchMining();
-      refetchUsdtBalance();
     }
   }, [isCompoundSuccess, isCompounding]);
+
+  useEffect(() => {
+    if (isClaimSuccess) {
+      toast.success(`Successfully claimed ${remainingToVest.toFixed(4)} IVY! 🎉`);
+      setShowWithdrawModal(false);
+      refetchMining();
+      refetchVesting();
+    }
+  }, [isClaimSuccess]);
+
+  useEffect(() => {
+    if (isCashOutSuccess) {
+      const received = remainingToVest * 0.5;
+      toast.success(`Instant cash out complete! Received ${received.toFixed(4)} IVY 💰`);
+      setShowWithdrawModal(false);
+      refetchMining();
+      refetchVesting();
+    }
+  }, [isCashOutSuccess]);
 
   // Quick amount buttons
   const quickAmounts = [100, 500, 1000, 5000];
@@ -402,21 +536,84 @@ export function TreasuryPanel() {
               </div>
             )}
           </div>
+
+          {/* Network Power Share */}
+          {totalPoolPower > 0 && syncedBondPower > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-gray-400">Network Power Share</div>
+                <div className="text-sm font-bold font-mono text-cyan-400">
+                  {userPowerPercentage.toFixed(4)}%
+                </div>
+              </div>
+              <div className="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                  style={{ width: `${Math.min(userPowerPercentage, 100)}%` }}
+                ></div>
+              </div>
+              <div className="text-[9px] text-gray-500 mt-1 flex items-center justify-between">
+                <span>Your Power: {syncedBondPower.toLocaleString()}</span>
+                <span>Total: {totalPoolPower.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* IVY Price Info */}
+      <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Coins className="w-5 h-5 text-green-400" />
+            <span className="text-sm font-bold text-white">IVY Price & Power Rate</span>
+          </div>
+          <div className="px-2 py-0.5 bg-green-500/20 rounded text-[10px] text-green-400 font-mono">
+            TESTNET
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="text-[10px] text-gray-400 mb-1">Current IVY Price</div>
+            <div className="text-2xl font-bold text-green-400 font-mono">
+              ${ivyPriceUSDT.toFixed(2)}
+            </div>
+            <div className="text-[10px] text-gray-500 mt-1">USDT per IVY</div>
+          </div>
+
+          <div>
+            <div className="text-[10px] text-gray-400 mb-1">Compound Rate</div>
+            <div className="text-2xl font-bold text-emerald-400 font-mono">
+              {ivyToPowerRate.toFixed(2)}
+            </div>
+            <div className="text-[10px] text-gray-500 mt-1">Power per IVY (+10% bonus)</div>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-green-500/20">
+          <div className="text-[10px] text-gray-400 mb-1">Formula:</div>
+          <div className="text-[11px] font-mono text-gray-300">
+            1 IVY = ${ivyPriceUSDT} × 1.1 (compound bonus) = {ivyToPowerRate} Power
+          </div>
+        </div>
+      </div>
 
       {/* Yield Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3">
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp className="w-3 h-3 text-primary" />
-            <span className="text-xs text-gray-400">Pending Yield</span>
+            <span className="text-xs text-gray-400">Pending Yield (vIVY)</span>
           </div>
           <div className="text-lg font-bold text-primary font-mono">
-            {pendingReward.toFixed(2)} IVY
+            {pendingReward.toFixed(2)} vIVY
+          </div>
+          <div className="text-[10px] text-gray-500 mt-1">
+            Mining rewards (can compound)
           </div>
         </div>
-        
+
         <div className="p-3 rounded-lg bg-black/40 border border-white/10">
           <div className="flex items-center gap-2 mb-1">
             <Clock className="w-3 h-3 text-gray-400" />
@@ -427,6 +624,52 @@ export function TreasuryPanel() {
           </div>
         </div>
       </div>
+
+      {/* Vesting Unlock Section */}
+      {remainingToVest > 0 && (
+        <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-sm font-bold text-white flex items-center gap-2">
+                <Coins className="w-4 h-4 text-blue-400" />
+                Locked IVY (30-Day Vesting)
+              </div>
+              <div className="text-[10px] text-gray-400 mt-1">
+                {isUnlocked ? 'Ready to claim!' : `Unlocks in ${Math.ceil(timeUntilUnlock / 86400)} days`}
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-blue-400 font-mono">
+              {remainingToVest.toFixed(2)} IVY
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+              onClick={() => {
+                setWithdrawMode('standard');
+                setShowWithdrawModal(true);
+              }}
+              disabled={!isUnlocked}
+            >
+              Standard Unlock (100%)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+              onClick={() => {
+                setWithdrawMode('instant');
+                setShowWithdrawModal(true);
+              }}
+            >
+              Instant (50% Penalty)
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Compound Section (if user has bonds) */}
       {bondCount > 0 && (
@@ -580,11 +823,11 @@ export function TreasuryPanel() {
       {showCompoundModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-white/10">
-            <h3 className="text-lg font-bold text-white mb-4">Compound into Bond NFT</h3>
-            
+            <h3 className="text-lg font-bold text-white mb-4">Compound vIVY into Bond NFT</h3>
+
             <div className="mb-4">
               <label className="text-sm text-gray-400 mb-2 block">Select Bond NFT</label>
-              <select 
+              <select
                 className="w-full bg-black/50 border border-white/10 rounded p-2 text-white"
                 value={selectedBondId ?? ''}
                 onChange={(e) => setSelectedBondId(Number(e.target.value))}
@@ -597,42 +840,174 @@ export function TreasuryPanel() {
                 ))}
               </select>
             </div>
-            
-            <div className="mb-4">
-              <label className="text-sm text-gray-400 mb-2 block">Compound Amount (USDT)</label>
-              <Input
-                type="number"
-                placeholder="Enter amount..."
-                value={compoundAmount}
-                onChange={(e) => setCompoundAmount(e.target.value)}
-                className="bg-black/50 border-white/10 text-white"
-              />
+
+            <div className="mb-4 p-3 rounded bg-blue-500/10 border border-blue-500/20">
+              <div className="text-[10px] text-gray-400 mb-1">Available vIVY (Pending Rewards):</div>
+              <div className="text-2xl font-bold text-white">{pendingReward.toFixed(4)} vIVY</div>
             </div>
-            
+
+            {/* Compound Amount Input */}
+            <div className="mb-4">
+              <label className="text-sm text-gray-400 mb-2 block">Compound Amount (vIVY)</label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Enter amount..."
+                  value={compoundAmount}
+                  onChange={(e) => setCompoundAmount(e.target.value)}
+                  className="bg-black/50 border-white/10 text-white"
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => setCompoundAmount(pendingReward.toString())}
+                  className="border-primary/30 text-primary hover:bg-primary/10"
+                >
+                  MAX
+                </Button>
+              </div>
+              {compoundAmount && Number(compoundAmount) > pendingReward && (
+                <div className="text-xs text-red-400 mt-1">
+                  Amount exceeds available vIVY
+                </div>
+              )}
+            </div>
+
             {compoundAmount && Number(compoundAmount) > 0 && (
               <div className="mb-4 p-3 rounded bg-orange-500/10 border border-orange-500/20">
-                <div className="text-[10px] text-gray-400">Bonus Power Calculation:</div>
-                <div className="text-sm font-mono text-orange-400">
-                  {(Number(compoundAmount) * 0.5).toLocaleString()} × 110% = {(Number(compoundAmount) * 0.5 * 1.1).toLocaleString()} Power
+                <div className="text-[10px] text-gray-400">Compound Process:</div>
+                <div className="text-[11px] text-gray-300 mt-2 space-y-1">
+                  <div>1. vIVY → Convert to IVY → Burn to 0xdead</div>
+                  <div>2. Query IVY price (Testnet: 1 IVY = 1 USDT)</div>
+                  <div>3. Calculate power with 10% bonus</div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-orange-500/20">
+                  <div className="text-[10px] text-gray-400">Bonus Power Calculation:</div>
+                  <div className="text-sm font-mono text-orange-400">
+                    {Number(compoundAmount).toFixed(2)} vIVY × 1 USDT × 110% = {(Number(compoundAmount) * 1.1).toFixed(2)} Power
+                  </div>
                 </div>
               </div>
             )}
-            
+
+            {pendingReward === 0 && (
+              <div className="mb-4 p-3 rounded bg-red-500/10 border border-red-500/20">
+                <div className="text-sm text-red-400">No vIVY available to compound</div>
+                <div className="text-[10px] text-gray-400 mt-1">You need to harvest rewards first</div>
+              </div>
+            )}
+
             <div className="flex gap-3">
-              <Button 
+              <Button
                 variant="outline"
                 className="flex-1"
                 onClick={() => setShowCompoundModal(false)}
               >
                 Cancel
               </Button>
-              <Button 
+              <Button
                 className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/30"
                 onClick={handleCompound}
-                disabled={isCompounding || isCompoundLoading || !compoundAmount || selectedBondId === null}
+                disabled={isCompounding || isCompoundLoading || !compoundAmount || Number(compoundAmount) <= 0 || Number(compoundAmount) > pendingReward || selectedBondId === null}
               >
-                {isCompounding || isCompoundLoading ? 'Compounding...' : 'Compound'}
+                {isCompounding || isCompoundLoading ? 'Compounding...' : 'Compound vIVY'}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw Modal */}
+      {showWithdrawModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-xl p-6 max-w-md w-full border border-white/10">
+            <h3 className="text-lg font-bold text-white mb-4">
+              {withdrawMode === 'standard' ? 'Standard Unlock (30 Days)' : 'Instant Cash Out (50% Penalty)'}
+            </h3>
+
+            <div className="mb-4 p-3 rounded bg-blue-500/10 border border-blue-500/20">
+              <div className="text-[10px] text-gray-400 mb-1">Locked IVY Amount:</div>
+              <div className="text-2xl font-bold text-white">{remainingToVest.toFixed(4)} IVY</div>
+            </div>
+
+            {withdrawMode === 'standard' && (
+              <>
+                {isUnlocked ? (
+                  <div className="mb-4 p-3 rounded bg-green-500/10 border border-green-500/20">
+                    <div className="text-sm text-green-400 font-bold mb-2">✅ Unlock Complete!</div>
+                    <div className="text-[11px] text-gray-300">
+                      You can now claim your full locked amount with no penalty.
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-green-500/20">
+                      <div className="text-[10px] text-gray-400">You will receive:</div>
+                      <div className="text-xl font-mono text-green-400">
+                        {remainingToVest.toFixed(4)} IVY (100%)
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mb-4 p-3 rounded bg-yellow-500/10 border border-yellow-500/20">
+                    <div className="text-sm text-yellow-400 font-bold mb-2">⏳ Still Locked</div>
+                    <div className="text-[11px] text-gray-300">
+                      Your IVY will unlock in {Math.ceil(timeUntilUnlock / 86400)} days ({Math.floor(timeUntilUnlock / 3600)} hours).
+                    </div>
+                    <div className="mt-2 text-[10px] text-gray-400">
+                      You can use Instant Cash Out to receive 50% immediately.
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {withdrawMode === 'instant' && (
+              <div className="mb-4 p-3 rounded bg-orange-500/10 border border-orange-500/20">
+                <div className="text-sm text-orange-400 font-bold mb-2">⚠️ Warning: 50% Penalty</div>
+                <div className="text-[11px] text-gray-300 mb-3">
+                  Instant cash out burns 50% of your locked IVY as a penalty for early withdrawal.
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-2 bg-green-500/10 rounded">
+                    <div className="text-[10px] text-gray-400">You Receive</div>
+                    <div className="text-sm font-mono text-green-400">
+                      {(remainingToVest * 0.5).toFixed(4)} IVY
+                    </div>
+                    <div className="text-[9px] text-gray-500">(50%)</div>
+                  </div>
+                  <div className="p-2 bg-red-500/10 rounded">
+                    <div className="text-[10px] text-gray-400">Burned</div>
+                    <div className="text-sm font-mono text-red-400">
+                      {(remainingToVest * 0.5).toFixed(4)} IVY
+                    </div>
+                    <div className="text-[9px] text-gray-500">(50%)</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowWithdrawModal(false)}
+              >
+                Cancel
+              </Button>
+              {withdrawMode === 'standard' ? (
+                <Button
+                  className="flex-1 bg-green-500/20 text-green-400 border border-green-500/30"
+                  onClick={handleClaimVested}
+                  disabled={isClaimLoading || !isUnlocked}
+                >
+                  {isClaimLoading ? 'Claiming...' : 'Claim IVY'}
+                </Button>
+              ) : (
+                <Button
+                  className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                  onClick={handleInstantCashOut}
+                  disabled={isCashOutLoading}
+                >
+                  {isCashOutLoading ? 'Processing...' : 'Confirm Cash Out'}
+                </Button>
+              )}
             </div>
           </div>
         </div>
