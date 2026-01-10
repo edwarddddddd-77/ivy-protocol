@@ -116,6 +116,7 @@ export function TreasuryPanel() {
   const { writeContract: approveUSDT, data: approveHash } = useWriteContract();
   const { writeContract: deposit, data: depositHash } = useWriteContract();
   const { writeContract: compoundVested, data: compoundHash } = useWriteContract();
+  const { writeContract: harvestRewards, data: harvestHash } = useWriteContract();
   const { writeContract: syncUser, data: syncHash } = useWriteContract();
   const { writeContract: claimVested, data: claimHash } = useWriteContract();
   const { writeContract: instantCashOut, data: cashOutHash } = useWriteContract();
@@ -143,6 +144,10 @@ export function TreasuryPanel() {
 
   const { isLoading: isCashOutLoading, isSuccess: isCashOutSuccess } = useWaitForTransactionReceipt({
     hash: cashOutHash,
+  });
+
+  const { isLoading: isHarvestLoading, isSuccess: isHarvestSuccess } = useWaitForTransactionReceipt({
+    hash: harvestHash,
   });
 
   // Parse fund allocation data (whitepaper compliant)
@@ -321,6 +326,28 @@ export function TreasuryPanel() {
     }
   };
 
+  // Handle harvest (convert vIVY to locked IVY)
+  const handleHarvest = async () => {
+    if (!address) return;
+
+    if (pendingReward === 0) {
+      toast.error(t('harvest.no_vivy'));
+      return;
+    }
+
+    try {
+      harvestRewards({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'harvest',
+        args: [],
+      });
+      toast.info(t('harvest.info_toast').replace('{amount}', pendingReward.toFixed(4)));
+    } catch (error) {
+      toast.error('Harvest failed');
+    }
+  };
+
   // Handle transaction success
   useEffect(() => {
     if (isApproveSuccess && isApproving) {
@@ -389,6 +416,14 @@ export function TreasuryPanel() {
       refetchVesting();
     }
   }, [isCashOutSuccess]);
+
+  useEffect(() => {
+    if (isHarvestSuccess) {
+      toast.success(t('harvest.success').replace('{amount}', pendingReward.toFixed(4)));
+      refetchMining();
+      refetchVesting();
+    }
+  }, [isHarvestSuccess]);
 
   // Quick amount buttons
   const quickAmounts = [100, 500, 1000, 5000];
@@ -610,7 +645,7 @@ export function TreasuryPanel() {
             {pendingReward.toFixed(2)} vIVY
           </div>
           <div className="text-[10px] text-gray-500 mt-1">
-            Mining rewards (can compound)
+            Mining rewards (can harvest or compound)
           </div>
         </div>
 
@@ -624,6 +659,39 @@ export function TreasuryPanel() {
           </div>
         </div>
       </div>
+
+      {/* Harvest Section (Convert vIVY to Locked IVY) */}
+      {pendingReward > 0 && (
+        <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-bold text-white">{t('harvest.title')}</span>
+            </div>
+            <div className="px-2 py-0.5 bg-cyan-500/20 rounded text-[10px] text-cyan-400 font-bold">
+              {t('harvest.lock_badge')}
+            </div>
+          </div>
+          <div className="text-[10px] text-gray-400 mb-3">
+            {t('harvest.description')}
+          </div>
+          <div className="mb-3 p-3 rounded bg-cyan-500/10 border border-cyan-500/20">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-300">{t('harvest.available')}</span>
+              <span className="text-lg font-bold text-cyan-400 font-mono">{pendingReward.toFixed(4)} vIVY</span>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+            onClick={handleHarvest}
+            disabled={isHarvestLoading}
+          >
+            {isHarvestLoading ? t('harvest.harvesting') : t('harvest.button').replace('{amount}', pendingReward.toFixed(4))}
+          </Button>
+        </div>
+      )}
 
       {/* Vesting Unlock Section */}
       {remainingToVest > 0 && (
