@@ -19,7 +19,6 @@ export function TreasuryPanel() {
   const [compoundAmount, setCompoundAmount] = useState('');
   const [selectedBondId, setSelectedBondId] = useState<number | null>(null);
   const [isApproving, setIsApproving] = useState(false);
-  const [isApprovingIvy, setIsApprovingIvy] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
   const [isCompounding, setIsCompounding] = useState(false);
   const [showCompoundModal, setShowCompoundModal] = useState(false);
@@ -69,24 +68,6 @@ export function TreasuryPanel() {
     query: { enabled: !!address && isConnected }
   });
 
-  // Read IVY balance
-  const { data: ivyBalance, refetch: refetchIvyBalance } = useReadContract({
-    address: addresses.IvyToken as `0x${string}`,
-    abi: abis.IvyToken,
-    functionName: 'balanceOf',
-    args: [address],
-    query: { enabled: !!address && isConnected }
-  });
-
-  // Read IVY allowance for IvyBond (for compound)
-  const { data: ivyAllowance, refetch: refetchIvyAllowance } = useReadContract({
-    address: addresses.IvyToken as `0x${string}`,
-    abi: abis.IvyToken,
-    functionName: 'allowance',
-    args: [address, addresses.IvyBond],
-    query: { enabled: !!address && isConnected }
-  });
-
   // Read user's boost from GenesisNode
   const { data: totalBoost } = useReadContract({
     address: addresses.GenesisNode as `0x${string}`,
@@ -107,7 +88,6 @@ export function TreasuryPanel() {
 
   // Write contracts
   const { writeContract: approveUSDT, data: approveHash } = useWriteContract();
-  const { writeContract: approveIVY, data: approveIvyHash } = useWriteContract();
   const { writeContract: deposit, data: depositHash } = useWriteContract();
   const { writeContract: compound, data: compoundHash } = useWriteContract();
   const { writeContract: syncUser, data: syncHash } = useWriteContract();
@@ -115,10 +95,6 @@ export function TreasuryPanel() {
   // Wait for transactions
   const { isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
     hash: approveHash,
-  });
-
-  const { isLoading: isApproveIvyLoading, isSuccess: isApproveIvySuccess } = useWaitForTransactionReceipt({
-    hash: approveIvyHash,
   });
 
   const { isLoading: isDepositLoading, isSuccess: isDepositSuccess } = useWaitForTransactionReceipt({
@@ -169,12 +145,6 @@ export function TreasuryPanel() {
   // Bond NFT count
   const bondCount = bondIds ? (bondIds as any[]).length : 0;
 
-  // IVY compound checks
-  const ivyBalanceNum = ivyBalance ? Number(ivyBalance as any) / 1e18 : 0;
-  const compoundAmountBigInt = compoundAmount ? parseEther(compoundAmount) : BigInt(0);
-  const hasIvyApproval = ivyAllowance ? BigInt(ivyAllowance as any) >= compoundAmountBigInt : false;
-  const hasEnoughIvy = ivyBalanceNum >= Number(compoundAmount || 0);
-
   // Handle approve
   const handleApprove = async () => {
     if (!address || !depositAmount) return;
@@ -191,25 +161,6 @@ export function TreasuryPanel() {
     } catch (error) {
       toast.error('Approval failed');
       setIsApproving(false);
-    }
-  };
-
-  // Handle IVY approval for compound
-  const handleApproveIvy = async () => {
-    if (!address || !compoundAmount) return;
-
-    setIsApprovingIvy(true);
-    try {
-      approveIVY({
-        address: addresses.IvyToken as `0x${string}`,
-        abi: abis.IvyToken,
-        functionName: 'approve',
-        args: [addresses.IvyBond, parseEther(compoundAmount) * BigInt(10)],
-      });
-      toast.info('IVY approval transaction submitted...');
-    } catch (error) {
-      toast.error('IVY approval failed');
-      setIsApprovingIvy(false);
     }
   };
 
@@ -264,14 +215,6 @@ export function TreasuryPanel() {
   }, [isApproveSuccess, isApproving, refetchAllowance]);
 
   useEffect(() => {
-    if (isApproveIvySuccess && isApprovingIvy) {
-      setIsApprovingIvy(false);
-      toast.success('IVY Approved for Compound!');
-      refetchIvyAllowance();
-    }
-  }, [isApproveIvySuccess, isApprovingIvy]);
-
-  useEffect(() => {
     if (isDepositSuccess && isDepositing) {
       setIsDepositing(false);
       toast.success('Bond NFT Minted! 🎉');
@@ -309,8 +252,7 @@ export function TreasuryPanel() {
       setShowCompoundModal(false);
       refetchAllocation();
       refetchMining();
-      refetchIvyBalance();
-      refetchIvyAllowance();
+      refetchUsdtBalance();
     }
   }, [isCompoundSuccess, isCompounding]);
 
@@ -657,79 +599,40 @@ export function TreasuryPanel() {
             </div>
             
             <div className="mb-4">
-              <label className="text-sm text-gray-400 mb-2 block">
-                Compound Amount (IVY)
-                <span className="ml-2 text-[10px] text-gray-500">
-                  Available: {claimableNow.toFixed(4)} IVY
-                </span>
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Enter IVY amount..."
-                  value={compoundAmount}
-                  onChange={(e) => setCompoundAmount(e.target.value)}
-                  className="flex-1 bg-black/50 border-white/10 text-white"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => setCompoundAmount(claimableNow.toFixed(18))}
-                  disabled={claimableNow === 0}
-                >
-                  MAX
-                </Button>
-              </div>
+              <label className="text-sm text-gray-400 mb-2 block">Compound Amount (USDT)</label>
+              <Input
+                type="number"
+                placeholder="Enter amount..."
+                value={compoundAmount}
+                onChange={(e) => setCompoundAmount(e.target.value)}
+                className="bg-black/50 border-white/10 text-white"
+              />
             </div>
-
-            {compoundAmount && Number(compoundAmount) > 0 && !hasEnoughIvy && (
-              <div className="mb-4 p-3 rounded bg-red-500/10 border border-red-500/20">
-                <div className="text-sm font-bold text-red-400">Insufficient IVY Balance</div>
-                <div className="text-[10px] text-gray-400 mt-1">
-                  You have {ivyBalanceNum.toFixed(4)} IVY, but need {Number(compoundAmount).toFixed(4)} IVY
-                </div>
-              </div>
-            )}
-
-            {compoundAmount && Number(compoundAmount) > 0 && hasEnoughIvy && (
+            
+            {compoundAmount && Number(compoundAmount) > 0 && (
               <div className="mb-4 p-3 rounded bg-orange-500/10 border border-orange-500/20">
                 <div className="text-[10px] text-gray-400">Bonus Power Calculation:</div>
                 <div className="text-sm font-mono text-orange-400">
-                  {Number(compoundAmount).toLocaleString()} IVY × 110% = {(Number(compoundAmount) * 1.1).toLocaleString()} Power
-                </div>
-                <div className="text-[10px] text-gray-500 mt-1">
-                  IVY tokens will be burned (sent to 0xdead)
+                  {(Number(compoundAmount) * 0.5).toLocaleString()} × 110% = {(Number(compoundAmount) * 0.5 * 1.1).toLocaleString()} Power
                 </div>
               </div>
             )}
             
             <div className="flex gap-3">
-              <Button
+              <Button 
                 variant="outline"
                 className="flex-1"
                 onClick={() => setShowCompoundModal(false)}
               >
                 Cancel
               </Button>
-
-              {!hasIvyApproval && compoundAmount && Number(compoundAmount) > 0 ? (
-                <Button
-                  className="flex-1 bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                  onClick={handleApproveIvy}
-                  disabled={isApprovingIvy || isApproveIvyLoading || !hasEnoughIvy}
-                >
-                  {isApprovingIvy || isApproveIvyLoading ? 'Approving...' : 'Approve IVY'}
-                </Button>
-              ) : (
-                <Button
-                  className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/30"
-                  onClick={handleCompound}
-                  disabled={isCompounding || isCompoundLoading || !compoundAmount || selectedBondId === null || !hasEnoughIvy}
-                >
-                  {isCompounding || isCompoundLoading ? 'Compounding...' : 'Compound'}
-                </Button>
-              )}
+              <Button 
+                className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                onClick={handleCompound}
+                disabled={isCompounding || isCompoundLoading || !compoundAmount || selectedBondId === null}
+              >
+                {isCompounding || isCompoundLoading ? 'Compounding...' : 'Compound'}
+              </Button>
             </div>
           </div>
         </div>
