@@ -1193,7 +1193,12 @@ contract IvyCore is Ownable, ReentrancyGuard {
         UserInfo storage user = userInfo[msg.sender];
 
         // 2. Calculate Available vIVY
-        uint256 pending = (user.bondPower * accIvyPerShare / ACC_IVY_PRECISION) - user.rewardDebt;
+        // ✅ FIX: Prevent underflow when rewardDebt > calculated rewards
+        uint256 calculatedReward = user.bondPower * accIvyPerShare / ACC_IVY_PRECISION;
+        uint256 pending = 0;
+        if (calculatedReward > user.rewardDebt) {
+            pending = calculatedReward - user.rewardDebt;
+        }
         uint256 totalAvailable = pending + user.pendingVested;
         require(amount <= totalAvailable, "Insufficient vIVY balance");
 
