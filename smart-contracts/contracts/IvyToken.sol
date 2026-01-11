@@ -45,9 +45,12 @@ contract IvyToken is ERC20, Ownable {
     /// @notice Total supply cap: 100,000,000 IVY
     uint256 public constant TOTAL_SUPPLY_CAP = 100_000_000 * 10**18;
     
-    /// @notice Pre-mint allocation for Marketing/Treasury: 30,000,000 IVY
-    /// @dev This is minted at deployment to OperationsWallet, NOT through mining
-    uint256 public constant PRE_MINT_AMOUNT = 30_000_000 * 10**18;
+    /// @notice Pre-mint allocation: 15,000,000 IVY
+    /// @dev Minted at deployment to OperationsWallet, then distributed:
+    ///      - 5M → DAO Treasury
+    ///      - 5M → Initial Liquidity
+    ///      - 5M → Operations (remains in operationsWallet)
+    uint256 public constant PRE_MINT_AMOUNT = 15_000_000 * 10**18;
     
     /// @notice Mining allocation: 70,000,000 IVY (minted via IvyCore)
     uint256 public constant MINING_ALLOCATION = 70_000_000 * 10**18;
@@ -109,14 +112,18 @@ contract IvyToken is ERC20, Ownable {
     
     /**
      * @dev Initialize IvyToken with pre-mint allocation
-     * @param _operationsWallet Address to receive 30M pre-minted IVY (Marketing/Treasury)
-     * 
+     * @param _operationsWallet Address to receive 15M pre-minted IVY
+     *
      * ╔═══════════════════════════════════════════════════════════════╗
      * ║              TOKENOMICS DISTRIBUTION                          ║
      * ╠═══════════════════════════════════════════════════════════════╣
      * ║  Total Supply:     100,000,000 IVY (100M)                     ║
-     * ║  Pre-mint:          30,000,000 IVY (30M) → OperationsWallet   ║
+     * ║  Pre-mint:          15,000,000 IVY (15M) → OperationsWallet   ║
+     * ║    - 5M → DAO Treasury                                        ║
+     * ║    - 5M → Initial Liquidity                                   ║
+     * ║    - 5M → Operations (remains)                                ║
      * ║  Mining:            70,000,000 IVY (70M) → Via IvyCore        ║
+     * ║  LP Reserve:        15,000,000 IVY (15M) → Via LPManager      ║
      * ╚═══════════════════════════════════════════════════════════════╝
      */
     constructor(address _operationsWallet) ERC20("Ivy Protocol", "IVY") Ownable(msg.sender) {
@@ -132,7 +139,7 @@ contract IvyToken is ERC20, Ownable {
         // Operations wallet excluded from tax
         isExcludedFromTax[_operationsWallet] = true;
         
-        // Pre-mint 30M IVY to Operations Wallet (Marketing/Treasury)
+        // Pre-mint 15M IVY to Operations Wallet
         // This allocation is NOT subject to PID algorithm or mining mechanics
         _mint(_operationsWallet, PRE_MINT_AMOUNT);
     }
@@ -200,53 +207,48 @@ contract IvyToken is ERC20, Ownable {
     }
 
     /**
-     * @dev Distribute 30M pre-mint to designated wallets (ONE-TIME ONLY)
-     * @param daoWallet DAO treasury wallet (receives 15M IVY = 15%)
-     * @param airdropWallet Airdrop pool wallet (receives 10M IVY = 10%)
+     * @dev Distribute 15M pre-mint to designated wallets (ONE-TIME ONLY)
+     * @param daoWallet DAO treasury wallet (receives 5M IVY = 5%)
      * @param liquidityWallet Liquidity provision wallet (receives 5M IVY = 5%)
      *
      * ╔═══════════════════════════════════════════════════════════════╗
-     * ║              30M PRE-MINT DISTRIBUTION                        ║
+     * ║              15M PRE-MINT DISTRIBUTION                        ║
      * ╠═══════════════════════════════════════════════════════════════╣
-     * ║  Total: 30,000,000 IVY (30% of total supply)                  ║
-     * ║  - 15M (15%) → DAO Treasury                                   ║
-     * ║  - 10M (10%) → Airdrop Pool                                   ║
-     * ║  -  5M (5%)  → Initial Liquidity                              ║
+     * ║  Total: 15,000,000 IVY (15% of total supply)                  ║
+     * ║  - 5M (5%) → DAO Treasury                                     ║
+     * ║  - 5M (5%) → Initial Liquidity                                ║
+     * ║  - 5M (5%) → Operations (remains in operationsWallet)         ║
      * ╚═══════════════════════════════════════════════════════════════╝
      *
      * @notice Can only be called ONCE by owner
-     * @notice All three wallets will be auto-excluded from tax
+     * @notice Both wallets will be auto-excluded from tax
+     * @notice 5M remains in operationsWallet for operations
      */
     function distributePreMint(
         address daoWallet,
-        address airdropWallet,
         address liquidityWallet
     ) external onlyOwner {
         require(!preMintDistributed, "Pre-mint already distributed");
         require(daoWallet != address(0), "Invalid DAO wallet");
-        require(airdropWallet != address(0), "Invalid airdrop wallet");
         require(liquidityWallet != address(0), "Invalid liquidity wallet");
 
         // Mark as distributed to prevent re-execution
         preMintDistributed = true;
 
         // Calculate amounts
-        uint256 daoAmount = 15_000_000 * 10**18;       // 15M IVY
-        uint256 airdropAmount = 10_000_000 * 10**18;   // 10M IVY
+        uint256 daoAmount = 5_000_000 * 10**18;        // 5M IVY
         uint256 liquidityAmount = 5_000_000 * 10**18;  // 5M IVY
+        // 5M remains in operationsWallet for operations
 
         // Auto-exclude all wallets from tax
         isExcludedFromTax[daoWallet] = true;
-        isExcludedFromTax[airdropWallet] = true;
         isExcludedFromTax[liquidityWallet] = true;
 
         // Transfer from operationsWallet to designated wallets
         _transfer(operationsWallet, daoWallet, daoAmount);
-        _transfer(operationsWallet, airdropWallet, airdropAmount);
         _transfer(operationsWallet, liquidityWallet, liquidityAmount);
 
         emit ExcludedFromTax(daoWallet, true);
-        emit ExcludedFromTax(airdropWallet, true);
         emit ExcludedFromTax(liquidityWallet, true);
     }
 
