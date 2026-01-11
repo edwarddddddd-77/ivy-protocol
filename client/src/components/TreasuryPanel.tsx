@@ -24,6 +24,7 @@ export function TreasuryPanel() {
   const [compoundAmount, setCompoundAmount] = useState('');
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawMode, setWithdrawMode] = useState<'standard' | 'instant' | null>(null);
+  const [harvestAmount, setHarvestAmount] = useState('');
 
   // Read user's fund allocation (whitepaper compliant)
   const { data: fundAllocation, refetch: refetchAllocation } = useReadContract({
@@ -335,14 +336,37 @@ export function TreasuryPanel() {
       return;
     }
 
+    // Determine the amount to harvest
+    const amountToHarvest = harvestAmount ? Number(harvestAmount) : pendingReward;
+    
+    if (amountToHarvest <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    if (amountToHarvest > pendingReward) {
+      toast.error(`Amount exceeds available vIVY (${pendingReward.toFixed(4)})`);
+      return;
+    }
+
     try {
-      harvestRewards({
-        address: addresses.IvyCore as `0x${string}`,
-        abi: abis.IvyCore,
-        functionName: 'harvest',
-        args: [],
-      });
-      toast.info(t('harvest.info_toast').replace('{amount}', pendingReward.toFixed(4)));
+      // Use harvestPartial if not harvesting full amount, otherwise use harvest
+      if (amountToHarvest < pendingReward) {
+        harvestRewards({
+          address: addresses.IvyCore as `0x${string}`,
+          abi: abis.IvyCore,
+          functionName: 'harvestPartial',
+          args: [parseEther(amountToHarvest.toString())],
+        });
+      } else {
+        harvestRewards({
+          address: addresses.IvyCore as `0x${string}`,
+          abi: abis.IvyCore,
+          functionName: 'harvest',
+          args: [],
+        });
+      }
+      toast.info(t('harvest.info_toast').replace('{amount}', amountToHarvest.toFixed(4)));
     } catch (error) {
       toast.error('Harvest failed');
     }
@@ -419,7 +443,9 @@ export function TreasuryPanel() {
 
   useEffect(() => {
     if (isHarvestSuccess) {
-      toast.success(t('harvest.success').replace('{amount}', pendingReward.toFixed(4)));
+      const harvestedAmount = harvestAmount ? Number(harvestAmount) : pendingReward;
+      toast.success(t('harvest.success').replace('{amount}', harvestedAmount.toFixed(4)));
+      setHarvestAmount('');
       refetchMining();
       refetchVesting();
     }
@@ -681,14 +707,42 @@ export function TreasuryPanel() {
               <span className="text-lg font-bold text-cyan-400 font-mono">{pendingReward.toFixed(4)} vIVY</span>
             </div>
           </div>
+          
+          {/* Harvest Amount Input */}
+          <div className="mb-3">
+            <label className="text-xs text-gray-400 mb-1 block">Harvest Amount (vIVY)</label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                placeholder={pendingReward.toFixed(4)}
+                value={harvestAmount}
+                onChange={(e) => setHarvestAmount(e.target.value)}
+                className="bg-black/50 border-cyan-500/20 text-white"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setHarvestAmount(pendingReward.toString())}
+                className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 px-3"
+              >
+                MAX
+              </Button>
+            </div>
+            {harvestAmount && Number(harvestAmount) > pendingReward && (
+              <div className="text-xs text-red-400 mt-1">
+                Amount exceeds available vIVY
+              </div>
+            )}
+          </div>
+          
           <Button
             variant="outline"
             size="sm"
             className="w-full border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
             onClick={handleHarvest}
-            disabled={isHarvestLoading}
+            disabled={isHarvestLoading || (harvestAmount !== '' && (Number(harvestAmount) <= 0 || Number(harvestAmount) > pendingReward))}
           >
-            {isHarvestLoading ? t('harvest.harvesting') : t('harvest.button').replace('{amount}', pendingReward.toFixed(4))}
+            {isHarvestLoading ? t('harvest.harvesting') : (harvestAmount ? `Harvest ${Number(harvestAmount).toFixed(4)} vIVY` : t('harvest.button').replace('{amount}', pendingReward.toFixed(4)))}
           </Button>
         </div>
       )}

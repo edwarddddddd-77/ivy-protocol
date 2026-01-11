@@ -697,7 +697,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Harvest pending rewards into vesting
+     * @dev Harvest ALL pending rewards into vesting (backward compatible)
      */
     function harvest() external nonReentrant {
         address user = msg.sender;
@@ -707,6 +707,34 @@ contract IvyCore is Ownable, ReentrancyGuard {
         uint256 pending = info.pendingVested;
 
         require(pending > 0, "Nothing to harvest");
+
+        _executeHarvest(user, pending);
+    }
+
+    /**
+     * @dev Harvest PARTIAL pending rewards into vesting
+     * @param amount Amount of vIVY to harvest (must be <= pendingVested)
+     */
+    function harvestPartial(uint256 amount) external nonReentrant {
+        address user = msg.sender;
+        _syncUser(user);
+
+        UserInfo storage info = userInfo[user];
+        uint256 pending = info.pendingVested;
+
+        require(amount > 0, "Amount must be > 0");
+        require(amount <= pending, "Amount exceeds pending vIVY");
+
+        _executeHarvest(user, amount);
+    }
+
+    /**
+     * @dev Internal function to execute harvest logic
+     * @param user Address of the user
+     * @param amount Amount to harvest
+     */
+    function _executeHarvest(address user, uint256 amount) internal {
+        UserInfo storage info = userInfo[user];
 
         // Check if mining cap reached
         require(totalMinted < MINING_CAP, "Mining cap reached");
@@ -723,47 +751,49 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // ║  3. This ensures referrals don't "steal" from mining cap     ║
         // ╚═══════════════════════════════════════════════════════════════╝
 
+        uint256 harvestAmount = amount;
+
         // Calculate total referral rate (17.5% = 1750 basis points)
         uint256 TOTAL_REFERRAL_RATE = L1_RATE + L2_RATE + INFINITE_RATE + PEER_BONUS_RATE;
 
-        // Estimate referral rewards (17.5% of pending)
-        uint256 estimatedReferralRewards = (pending * TOTAL_REFERRAL_RATE) / BASIS_POINTS;
+        // Estimate referral rewards (17.5% of harvestAmount)
+        uint256 estimatedReferralRewards = (harvestAmount * TOTAL_REFERRAL_RATE) / BASIS_POINTS;
 
         // Calculate total rewards needed (user reward + referral rewards)
-        uint256 totalRewardsNeeded = pending + estimatedReferralRewards;
+        uint256 totalRewardsNeeded = harvestAmount + estimatedReferralRewards;
 
-        // Adjust pending if total rewards would exceed mining cap
+        // Adjust harvestAmount if total rewards would exceed mining cap
         if (totalMinted + totalRewardsNeeded > MINING_CAP) {
             // Calculate available space in mining cap
             uint256 availableSpace = MINING_CAP - totalMinted;
 
-            // Scale down pending proportionally
-            // Formula: pending = availableSpace / (1 + 17.5%)
+            // Scale down harvestAmount proportionally
+            // Formula: harvestAmount = availableSpace / (1 + 17.5%)
             //        = availableSpace * 10000 / (10000 + 1750)
             //        = availableSpace * 10000 / 11750
-            pending = (availableSpace * BASIS_POINTS) / (BASIS_POINTS + TOTAL_REFERRAL_RATE);
+            harvestAmount = (availableSpace * BASIS_POINTS) / (BASIS_POINTS + TOTAL_REFERRAL_RATE);
         }
 
-        // Move to vesting
-        info.pendingVested = 0;
-        info.totalVested += pending;
+        // Move to vesting (deduct from pendingVested)
+        info.pendingVested -= amount;  // Deduct original requested amount
+        info.totalVested += harvestAmount;  // Add actual harvested amount (may be less due to cap)
 
         if (info.vestingStartTime == 0) {
             info.vestingStartTime = block.timestamp;
         }
 
         // Mint IVY to this contract for vesting
-        totalMinted += pending;
-        ivyToken.mint(address(this), pending);
+        totalMinted += harvestAmount;
+        ivyToken.mint(address(this), harvestAmount);
 
         // Check for halving
         _checkHalving();
 
         // Distribute referral rewards (will update totalMinted further)
-        _distributeReferralRewards(user, pending);
+        _distributeReferralRewards(user, harvestAmount);
 
-        emit RewardsHarvested(user, pending);
-        emit VestingStarted(user, pending, block.timestamp);
+        emit RewardsHarvested(user, harvestAmount);
+        emit VestingStarted(user, harvestAmount, block.timestamp);
     }
 
     /**
