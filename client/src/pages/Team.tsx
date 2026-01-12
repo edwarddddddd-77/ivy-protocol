@@ -3,20 +3,122 @@ import { Card } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import {
   Users, TrendingUp, Award, Zap, Copy, Check,
-  UserPlus, Activity, BarChart3, Target, ArrowUpRight
+  UserPlus, Activity, BarChart3, Target, ArrowUpRight,
+  Coins, RefreshCw, Clock
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTeamStats } from "@/hooks/useTeamStats";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { toast } from "sonner";
 import { PowerLeaderboard } from "@/components/PowerLeaderboard";
+import { parseEther } from "viem";
+import addresses from "@/contracts/addresses.json";
+import abis from "@/contracts/abis.json";
 export default function Team() {
   const { t } = useLanguage();
   const { address } = useAccount();
-  const { summary, teamStats, directReferrals, performance } = useTeamStats();
+  const { summary, teamStats, directReferrals, performance, pendingReferralRewards, refetch } = useTeamStats();
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [isHarvesting, setIsHarvesting] = useState(false);
+  const [isCompounding, setIsCompounding] = useState(false);
+  const [showCompoundModal, setShowCompoundModal] = useState(false);
+  const [selectedBondId, setSelectedBondId] = useState<number | null>(null);
+
+  // Read user's Bond NFT IDs (for compound functionality)
+  const { data: bondIds, refetch: refetchBondIds } = useReadContract({
+    address: addresses.IvyBond as `0x${string}`,
+    abi: abis.IvyBond,
+    functionName: 'getUserBondIds',
+    args: [address],
+    query: { enabled: !!address }
+  });
+
+  // Write contracts for referral rewards
+  const { writeContract: harvestReferral, data: harvestHash } = useWriteContract();
+  const { writeContract: compoundReferral, data: compoundHash } = useWriteContract();
+
+  // Wait for transactions
+  const { isLoading: isHarvestLoading, isSuccess: isHarvestSuccess } = useWaitForTransactionReceipt({
+    hash: harvestHash,
+  });
+  const { isLoading: isCompoundLoading, isSuccess: isCompoundSuccess } = useWaitForTransactionReceipt({
+    hash: compoundHash,
+  });
+
+  // Handle harvest referral rewards
+  const handleHarvestReferral = async () => {
+    if (!address) return;
+    const pendingAmount = parseFloat(pendingReferralRewards || "0");
+    if (pendingAmount <= 0) {
+      toast.error(t('team.no_pending_rewards'));
+      return;
+    }
+
+    setIsHarvesting(true);
+    try {
+      harvestReferral({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'harvestReferralRewards',
+        args: [],
+      });
+      toast.info(`Harvesting ${pendingAmount.toFixed(4)} IVY referral rewards...`);
+    } catch (error) {
+      toast.error('Harvest failed');
+      setIsHarvesting(false);
+    }
+  };
+
+  // Handle compound referral rewards
+  const handleCompoundReferral = async () => {
+    if (!address || selectedBondId === null) return;
+    const pendingAmount = parseFloat(pendingReferralRewards || "0");
+    if (pendingAmount <= 0) {
+      toast.error(t('team.no_pending_rewards'));
+      return;
+    }
+
+    setIsCompounding(true);
+    try {
+      compoundReferral({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'compoundReferralRewards',
+        args: [BigInt(selectedBondId)],
+      });
+      toast.info(`Compounding ${pendingAmount.toFixed(4)} IVY with +10% bonus...`);
+    } catch (error) {
+      toast.error('Compound failed');
+      setIsCompounding(false);
+    }
+  };
+
+  // Handle transaction success
+  useEffect(() => {
+    if (isHarvestSuccess && isHarvesting) {
+      setIsHarvesting(false);
+      toast.success(t('team.referral_harvest_success'));
+      refetch.pendingReferral();
+      refetch.summary();
+    }
+  }, [isHarvestSuccess, isHarvesting]);
+
+  useEffect(() => {
+    if (isCompoundSuccess && isCompounding) {
+      setIsCompounding(false);
+      toast.success(t('team.referral_compound_success'));
+      setShowCompoundModal(false);
+      setSelectedBondId(null);
+      refetch.pendingReferral();
+      refetch.summary();
+      refetchBondIds();
+    }
+  }, [isCompoundSuccess, isCompounding]);
+
+  const bondCount = bondIds ? (bondIds as any[]).length : 0;
+  const pendingAmount = parseFloat(pendingReferralRewards || "0");
 
   // Copy referral link
   const handleCopyReferral = () => {
@@ -150,6 +252,73 @@ export default function Team() {
             delay={0.4}
           />
         </div>
+
+        {/* Pending Referral Rewards Card (V2.0) */}
+        {address && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+          >
+            <Card className="bg-gradient-to-r from-[#39FF14]/10 to-emerald-500/10 border-[#39FF14]/40 backdrop-blur-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-[#39FF14]/20 rounded-lg flex items-center justify-center">
+                    <Coins className="w-5 h-5 text-[#39FF14]" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-white">
+                      {t('team.pending_referral')}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono">
+                      {t('team.pending_referral_desc')}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-display font-bold text-[#39FF14]">
+                    {formatNumber(pendingAmount)} IVY
+                  </div>
+                  <div className="text-xs text-slate-400 font-mono">
+                    ≈ ${formatNumber(pendingAmount)} USDT
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleHarvestReferral}
+                  disabled={pendingAmount <= 0 || isHarvesting || isHarvestLoading}
+                  className="flex-1 bg-[#39FF14]/20 text-[#39FF14] border border-[#39FF14]/40 hover:bg-[#39FF14]/30 font-mono text-sm gap-2"
+                >
+                  <Clock className="w-4 h-4" />
+                  {isHarvesting || isHarvestLoading ? t('team.harvesting_referral') : t('team.harvest_referral')}
+                </Button>
+                <Button
+                  onClick={() => setShowCompoundModal(true)}
+                  disabled={pendingAmount <= 0 || bondCount === 0}
+                  className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/40 hover:bg-orange-500/30 font-mono text-sm gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {t('team.compound_referral')}
+                </Button>
+              </div>
+
+              {/* Info Text */}
+              <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-400 font-mono">
+                <div className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  <span>{t('team.harvest_referral_desc')}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3" />
+                  <span>{t('team.compound_referral_desc')}</span>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Team Performance Metrics */}
         <motion.div
@@ -306,6 +475,80 @@ export default function Team() {
           <PowerLeaderboard />
         </motion.div>
       </main>
+
+      {/* Compound Referral Rewards Modal */}
+      {showCompoundModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 rounded-xl p-6 max-w-md w-full border border-slate-700"
+          >
+            <h3 className="text-lg font-display font-bold text-white mb-4 flex items-center gap-2">
+              <RefreshCw className="w-5 h-5 text-orange-400" />
+              {t('team.compound_referral')}
+            </h3>
+
+            {/* Pending Amount */}
+            <div className="mb-4 p-4 rounded-lg bg-[#39FF14]/10 border border-[#39FF14]/30">
+              <div className="text-xs text-slate-400 mb-1">{t('team.pending_referral')}:</div>
+              <div className="text-2xl font-display font-bold text-[#39FF14]">
+                {formatNumber(pendingAmount)} IVY
+              </div>
+            </div>
+
+            {/* Select Bond NFT */}
+            <div className="mb-4">
+              <label className="text-sm text-slate-400 mb-2 block font-mono">
+                {t('team.select_bond_to_compound')}
+              </label>
+              <select
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 text-white font-mono"
+                value={selectedBondId ?? ''}
+                onChange={(e) => setSelectedBondId(Number(e.target.value))}
+              >
+                <option value="">Select a bond...</option>
+                {bondIds && (bondIds as any[]).map((id: any) => (
+                  <option key={id.toString()} value={id.toString()}>
+                    Bond NFT #{id.toString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Bonus Calculation */}
+            {selectedBondId !== null && pendingAmount > 0 && (
+              <div className="mb-4 p-4 rounded-lg bg-orange-500/10 border border-orange-500/30">
+                <div className="text-xs text-slate-400 mb-2">{t('team.compound_referral_desc')}:</div>
+                <div className="font-mono text-orange-400">
+                  <div>{formatNumber(pendingAmount)} IVY × 1.1 = <span className="text-lg font-bold">{formatNumber(pendingAmount * 1.1)}</span> Power</div>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800"
+                onClick={() => {
+                  setShowCompoundModal(false);
+                  setSelectedBondId(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/40 hover:bg-orange-500/30"
+                onClick={handleCompoundReferral}
+                disabled={isCompounding || isCompoundLoading || selectedBondId === null || pendingAmount <= 0}
+              >
+                {isCompounding || isCompoundLoading ? t('team.compounding_referral') : t('team.compound_referral')}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
