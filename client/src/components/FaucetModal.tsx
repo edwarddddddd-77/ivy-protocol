@@ -42,7 +42,7 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
   // Handle faucet claim
   const handleClaim = async () => {
     if (!address || addresses.MockUSDT === '0x0000000000000000000000000000000000000000') {
-      toast.error('MockUSDT not deployed yet');
+      toast.error(t('toast.contract_not_deployed'));
       return;
     }
     
@@ -54,9 +54,9 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
         functionName: 'faucet',
         args: [address, FAUCET_AMOUNT],
       });
-      toast.info('Faucet transaction submitted...');
+      toast.info(t('toast.faucet_submitted'));
     } catch (error) {
-      toast.error('Faucet claim failed');
+      toast.error(t('toast.faucet_failed'));
       setIsClaiming(false);
     }
   };
@@ -65,7 +65,7 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
   useEffect(() => {
     if (isFaucetSuccess && isClaiming) {
       setIsClaiming(false);
-      toast.success('20,000 MockUSDT claimed!');
+      toast.success(t('toast.faucet_success'));
       refetchBalance();
     }
   }, [isFaucetSuccess, isClaiming, refetchBalance]);

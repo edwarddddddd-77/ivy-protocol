@@ -217,9 +217,9 @@ export function TreasuryPanel() {
         functionName: 'approve',
         args: [addresses.IvyBond, parseEther(depositAmount) * BigInt(10)],
       });
-      toast.info('Approval transaction submitted...');
+      toast.info(t('toast.approval_submitted'));
     } catch (error) {
-      toast.error('Approval failed');
+      toast.error(t('toast.approval_failed'));
       setIsApproving(false);
     }
   };
@@ -239,9 +239,9 @@ export function TreasuryPanel() {
         functionName: 'deposit',
         args: [parseEther(depositAmount), referrerAddress as `0x${string}`],
       });
-      toast.info('Minting Bond NFT...');
+      toast.info(t('toast.minting_bond'));
     } catch (error) {
-      toast.error('Deposit failed');
+      toast.error(t('toast.deposit_failed'));
       setIsDepositing(false);
     }
   };
@@ -253,12 +253,12 @@ export function TreasuryPanel() {
     // Validate compound amount
     const amount = Number(compoundAmount);
     if (!compoundAmount || amount <= 0) {
-      toast.error('Please enter a valid amount');
+      toast.error(t('toast.invalid_amount'));
       return;
     }
 
     if (amount > pendingReward) {
-      toast.error(`Amount exceeds available vIVY (${pendingReward.toFixed(4)})`);
+      toast.error(t('toast.amount_exceeds'));
       return;
     }
 
@@ -270,9 +270,9 @@ export function TreasuryPanel() {
         functionName: 'compoundVestedPartial',
         args: [BigInt(selectedBondId), parseEther(compoundAmount)],
       });
-      toast.info(`Compounding ${Number(compoundAmount).toFixed(4)} vIVY into Bond NFT...`);
+      toast.info(t('toast.compounding').replace('{amount}', Number(compoundAmount).toFixed(4)));
     } catch (error) {
-      toast.error('Compound failed');
+      toast.error(t('toast.compound_failed'));
       setIsCompounding(false);
     }
   };
@@ -282,12 +282,12 @@ export function TreasuryPanel() {
     if (!address) return;
 
     if (!isUnlocked) {
-      toast.error('Vesting period not completed yet. Please wait or use Instant Cash Out.');
+      toast.error(t('toast.vesting_not_complete'));
       return;
     }
 
     if (remainingToVest === 0) {
-      toast.error('Nothing to claim');
+      toast.error(t('toast.nothing_to_claim'));
       return;
     }
 
@@ -298,9 +298,9 @@ export function TreasuryPanel() {
         functionName: 'claimVested',
         args: [],
       });
-      toast.info(`Claiming ${remainingToVest.toFixed(4)} IVY...`);
+      toast.info(t('toast.claiming').replace('{amount}', remainingToVest.toFixed(4)));
     } catch (error) {
-      toast.error('Claim failed');
+      toast.error(t('toast.claim_failed'));
     }
   };
 
@@ -309,7 +309,7 @@ export function TreasuryPanel() {
     if (!address) return;
 
     if (remainingToVest === 0) {
-      toast.error('Nothing to cash out');
+      toast.error(t('toast.nothing_to_cashout'));
       return;
     }
 
@@ -323,7 +323,7 @@ export function TreasuryPanel() {
       const received = remainingToVest * 0.5;
       toast.info(`Instant cash out: ${received.toFixed(4)} IVY (50% penalty applied)...`);
     } catch (error) {
-      toast.error('Cash out failed');
+      toast.error(t('toast.cashout_failed'));
     }
   };
 
@@ -340,12 +340,12 @@ export function TreasuryPanel() {
     const amountToHarvest = harvestAmount ? Number(harvestAmount) : pendingReward;
     
     if (amountToHarvest <= 0) {
-      toast.error('Please enter a valid amount');
+      toast.error(t('toast.invalid_amount'));
       return;
     }
 
     if (amountToHarvest > pendingReward) {
-      toast.error(`Amount exceeds available vIVY (${pendingReward.toFixed(4)})`);
+      toast.error(t('toast.amount_exceeds'));
       return;
     }
 
@@ -376,7 +376,7 @@ export function TreasuryPanel() {
   useEffect(() => {
     if (isApproveSuccess && isApproving) {
       setIsApproving(false);
-      toast.success('USDT Approved!');
+      toast.success(t('toast.usdt_approved'));
       refetchAllowance();
     }
   }, [isApproveSuccess, isApproving, refetchAllowance]);
@@ -384,11 +384,11 @@ export function TreasuryPanel() {
   useEffect(() => {
     if (isDepositSuccess && isDepositing) {
       setIsDepositing(false);
-      toast.success('Bond NFT Minted! 🎉');
+      toast.success(t('toast.bond_minted'));
 
       // ✅ Critical: Sync user to IvyCore after deposit
       // This updates mining power in IvyCore so rewards start accumulating
-      toast.info('Syncing mining power...');
+      toast.info(t('toast.syncing_power'));
       syncUser({
         address: addresses.IvyCore as `0x${string}`,
         abi: abis.IvyCore,
@@ -406,7 +406,7 @@ export function TreasuryPanel() {
 
   useEffect(() => {
     if (isSyncSuccess) {
-      toast.success('Mining power synced! Rewards will start accumulating. ⚡');
+      toast.success(t('toast.power_synced'));
       refetchMining();
     }
   }, [isSyncSuccess]);
@@ -414,7 +414,7 @@ export function TreasuryPanel() {
   useEffect(() => {
     if (isCompoundSuccess && isCompounding) {
       setIsCompounding(false);
-      toast.success('vIVY Compounded Successfully! +10% Bonus Power 🎉');
+      toast.success(t('toast.compound_success'));
       setShowCompoundModal(false);
       setCompoundAmount('');
       refetchAllocation();
@@ -837,7 +837,7 @@ export function TreasuryPanel() {
                   functionName: 'syncUser',
                   args: [address as `0x${string}`],
                 });
-                toast.info('Syncing mining power...');
+                toast.info(t('toast.syncing_power'));
               }}
               disabled={isSyncLoading}
             >

@@ -36,9 +36,11 @@ export function PowerLeaderboard() {
   const userBondPower = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
   const userSharePercent = totalPoolPower > 0 ? (userBondPower / totalPoolPower) * 100 : 0;
 
-  // Estimate rough rank based on power share (simplified estimation)
+  // Estimate rough rank based on power share
+  // If share >= 50%, you're #1 (you have more than everyone else combined)
+  // Otherwise, estimate based on share percentage
   const estimatedRank = userBondPower > 0
-    ? Math.max(1, Math.ceil(100 / userSharePercent))
+    ? (userSharePercent >= 50 ? 1 : Math.max(1, Math.round(100 / userSharePercent)))
     : '-';
 
   const getRankBadge = (rank: number | string) => {
@@ -70,7 +72,7 @@ export function PowerLeaderboard() {
         <div className="p-4 rounded-lg bg-gradient-to-r from-primary/10 to-green-500/10 border border-primary/20">
           <div className="flex items-center gap-2 mb-2">
             <Zap className="w-4 h-4 text-primary" />
-            <span className="text-xs text-gray-400">Total Network Power</span>
+            <span className="text-xs text-gray-400">{t('leaderboard.network_power')}</span>
           </div>
           <div className="text-2xl font-bold text-primary font-mono">
             {totalPoolPower.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -84,7 +86,7 @@ export function PowerLeaderboard() {
           <div className="text-2xl font-bold text-blue-400 font-mono">
             {totalPoolPower > 0 ? '—' : '0'}
           </div>
-          <div className="text-[10px] text-gray-500 mt-1">Indexing required</div>
+          <div className="text-[10px] text-gray-500 mt-1">{t('leaderboard.indexing_required')}</div>
         </div>
       </div>
 
@@ -121,7 +123,7 @@ export function PowerLeaderboard() {
         <div className="mb-6 p-4 rounded-lg bg-black/40 border border-white/10 text-center">
           <User className="w-8 h-8 mx-auto mb-2 text-gray-500" />
           <p className="text-sm text-gray-400">{t('leaderboard.no_data')}</p>
-          <p className="text-xs text-gray-500 mt-1">Deposit USDT to join the leaderboard</p>
+          <p className="text-xs text-gray-500 mt-1">{t('leaderboard.deposit_to_join')}</p>
         </div>
       ) : null}
 
@@ -158,8 +160,7 @@ export function PowerLeaderboard() {
       {/* Info Note */}
       <div className="mt-6 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
         <div className="text-xs text-blue-400">
-          <span className="font-bold">📊 Note:</span> Full leaderboard requires event indexing (The Graph / Backend API).
-          Your rank is estimated based on your share of total network power.
+          <span className="font-bold">📊 {t('leaderboard.note_title')}:</span> {t('leaderboard.note_desc')}
         </div>
       </div>
     </GlassCard>
