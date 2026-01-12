@@ -239,6 +239,26 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
     mapping(address => TeamStats) public teamStatsCache;
 
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║     REAL-TIME REFERRAL REWARDS (V2.0 UPGRADE)                 ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Purpose: Enable referrers to claim rewards independently     ║
+    // ║  Flow: Referred mines → Referrer has real-time pending        ║
+    // ║        → Referrer can harvest/compound anytime                ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /// @notice Total rewards earned by user (for referral reward calculation)
+    /// @dev Includes harvested + compounded amounts, used as basis for referral rewards
+    mapping(address => uint256) public totalRewardsEarned;
+
+    /// @notice Amount of referred user's earnings already credited for referral rewards
+    /// @dev referralBasisCredited[referrer][referred] = amount already rewarded
+    mapping(address => mapping(address => uint256)) public referralBasisCredited;
+
+    /// @notice Pending referral rewards for each user (accumulated but not yet claimed)
+    /// @dev Can be harvested or compounded independently
+    mapping(address => uint256) public pendingReferralRewards;
+
     // ============ Events ============
     
     event PoolUpdated(uint256 accIvyPerShare, uint256 lastRewardTime, uint256 totalPoolBondPower);
@@ -258,6 +278,11 @@ contract IvyCore is Ownable, ReentrancyGuard {
     event TestModePermanentlyDisabled();
     event VestedCompounded(address indexed user, uint256 indexed tokenId, uint256 pendingIvy, uint256 bonusPower);
     event PriceOracleSet(address indexed oracle);
+
+    // Real-time Referral Events
+    event ReferralRewardsAccumulated(address indexed referrer, address indexed from, uint256 amount, uint256 level);
+    event ReferralRewardsHarvested(address indexed user, uint256 amount);
+    event ReferralRewardsCompounded(address indexed user, uint256 indexed tokenId, uint256 amount, uint256 powerAdded);
 
     // ============ Constructor ============
     
@@ -631,32 +656,48 @@ contract IvyCore is Ownable, ReentrancyGuard {
     
     function _syncUser(address user) internal {
         updatePool();
-        
+
         UserInfo storage info = userInfo[user];
-        
+
         // Get current bond power from IvyBond
         uint256 newBondPower = 0;
         if (address(ivyBond) != address(0)) {
             newBondPower = ivyBond.getBondPower(user);
         }
-        
+
         // Apply boost from GenesisNode
         uint256 totalBoost = 0;
         if (address(genesisNode) != address(0)) {
             totalBoost = genesisNode.getTotalBoost(user);
         }
-        
+
         // Effective bond power = bondPower * (1 + boost)
         uint256 effectiveBondPower = (newBondPower * (BASIS_POINTS + totalBoost)) / BASIS_POINTS;
-        
+
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  REAL-TIME REFERRAL: Register relationship on first deposit   ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+        // If user's bondPower goes from 0 to >0, register the referral relationship
+        if (info.bondPower == 0 && effectiveBondPower > 0 && address(genesisNode) != address(0)) {
+            address referrer = genesisNode.getReferrer(user);
+            if (referrer != address(0)) {
+                _addDirectReferral(referrer, user);
+            }
+        }
+
         // Calculate pending rewards before updating
         if (info.bondPower > 0) {
             uint256 pending = (info.bondPower * accIvyPerShare / ACC_IVY_PRECISION) - info.rewardDebt;
             if (pending > 0) {
                 info.pendingVested += pending;
+
+                // ╔═══════════════════════════════════════════════════════════════╗
+                // ║  REAL-TIME REFERRAL: Accumulate rewards to referrers          ║
+                // ╚═══════════════════════════════════════════════════════════════╝
+                _accumulateReferralRewards(user, pending);
             }
         }
-        
+
         // Update total pool bond power
         totalPoolBondPower = totalPoolBondPower - info.bondPower + effectiveBondPower;
 
@@ -740,38 +781,20 @@ contract IvyCore is Ownable, ReentrancyGuard {
         require(totalMinted < MINING_CAP, "Mining cap reached");
 
         // ╔═══════════════════════════════════════════════════════════════╗
-        // ║  MINING CAP ENFORCEMENT INCLUDING REFERRAL REWARDS            ║
+        // ║  MINING CAP ENFORCEMENT (V2.0 - Real-time Referral)          ║
         // ╠═══════════════════════════════════════════════════════════════╣
-        // ║  Total referral rate:                                         ║
-        // ║  - L1 (10%) + L2 (5%) + Team (2%) + Peer (0.5%) = 17.5%      ║
-        // ║                                                               ║
-        // ║  To ensure 70M cap includes both user and referral rewards:   ║
-        // ║  1. Calculate total rewards needed (user + 17.5% referral)   ║
-        // ║  2. If exceeds cap, scale down proportionally                ║
-        // ║  3. This ensures referrals don't "steal" from mining cap     ║
+        // ║  With real-time referral rewards:                            ║
+        // ║  - Referral rewards are accumulated in _syncUser()           ║
+        // ║  - Referral rewards are minted when referrer claims          ║
+        // ║  - Harvest only needs to check user's amount vs cap          ║
         // ╚═══════════════════════════════════════════════════════════════╝
 
         uint256 harvestAmount = amount;
 
-        // Calculate total referral rate (17.5% = 1750 basis points)
-        uint256 TOTAL_REFERRAL_RATE = L1_RATE + L2_RATE + INFINITE_RATE + PEER_BONUS_RATE;
-
-        // Estimate referral rewards (17.5% of harvestAmount)
-        uint256 estimatedReferralRewards = (harvestAmount * TOTAL_REFERRAL_RATE) / BASIS_POINTS;
-
-        // Calculate total rewards needed (user reward + referral rewards)
-        uint256 totalRewardsNeeded = harvestAmount + estimatedReferralRewards;
-
-        // Adjust harvestAmount if total rewards would exceed mining cap
-        if (totalMinted + totalRewardsNeeded > MINING_CAP) {
-            // Calculate available space in mining cap
-            uint256 availableSpace = MINING_CAP - totalMinted;
-
-            // Scale down harvestAmount proportionally
-            // Formula: harvestAmount = availableSpace / (1 + 17.5%)
-            //        = availableSpace * 10000 / (10000 + 1750)
-            //        = availableSpace * 10000 / 11750
-            harvestAmount = (availableSpace * BASIS_POINTS) / (BASIS_POINTS + TOTAL_REFERRAL_RATE);
+        // Adjust harvestAmount if would exceed mining cap
+        if (totalMinted + harvestAmount > MINING_CAP) {
+            harvestAmount = MINING_CAP - totalMinted;
+            require(harvestAmount > 0, "Mining cap reached");
         }
 
         // Move to vesting (deduct from pendingVested)
@@ -782,6 +805,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
             info.vestingStartTime = block.timestamp;
         }
 
+        // Track total rewards earned (for referral calculation)
+        totalRewardsEarned[user] += harvestAmount;
+
         // Mint IVY to this contract for vesting
         totalMinted += harvestAmount;
         ivyToken.mint(address(this), harvestAmount);
@@ -789,8 +815,8 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // Check for halving
         _checkHalving();
 
-        // Distribute referral rewards (will update totalMinted further)
-        _distributeReferralRewards(user, harvestAmount);
+        // NOTE: Referral rewards are now accumulated in real-time during _syncUser()
+        // No need to call _distributeReferralRewards here (V2.0 upgrade)
 
         emit RewardsHarvested(user, harvestAmount);
         emit VestingStarted(user, harvestAmount, block.timestamp);
@@ -1000,6 +1026,70 @@ contract IvyCore is Ownable, ReentrancyGuard {
         // END: Logic complete, no further searching
     }
 
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║     REAL-TIME REFERRAL REWARDS ACCUMULATION                   ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Called during _syncUser when user earns new rewards          ║
+    // ║  Accumulates referral rewards to referrers' pending balance   ║
+    // ║  Referrers can claim/compound independently at any time       ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /**
+     * @dev Accumulate referral rewards to referrers' pending balance (real-time)
+     * @param user The user who earned rewards (triggers referral payout)
+     * @param amount The amount of rewards earned by user
+     */
+    function _accumulateReferralRewards(address user, uint256 amount) internal {
+        if (address(genesisNode) == address(0)) return;
+
+        // ========== L1 Direct Referral (10%) ==========
+        address l1Referrer = genesisNode.getReferrer(user);
+        if (l1Referrer == address(0)) return;
+
+        uint256 l1Reward = (amount * L1_RATE) / BASIS_POINTS;
+        if (l1Reward > 0) {
+            pendingReferralRewards[l1Referrer] += l1Reward;
+            emit ReferralRewardsAccumulated(l1Referrer, user, l1Reward, 1);
+        }
+
+        // ========== L2 Indirect Referral (5%) ==========
+        address l2Referrer = genesisNode.getReferrer(l1Referrer);
+        if (l2Referrer != address(0)) {
+            uint256 l2Reward = (amount * L2_RATE) / BASIS_POINTS;
+            if (l2Reward > 0) {
+                pendingReferralRewards[l2Referrer] += l2Reward;
+                emit ReferralRewardsAccumulated(l2Referrer, user, l2Reward, 2);
+            }
+        }
+
+        // ========== Team Bonus (2%) - Nearest GenesisNode Holder ==========
+        address searchAddr = l1Referrer;
+        uint256 iterations = 0;
+
+        while (searchAddr != address(0) && iterations < MAX_REFERRAL_DEPTH) {
+            if (genesisNode.balanceOf(searchAddr) > 0) {
+                uint256 teamReward = (amount * INFINITE_RATE) / BASIS_POINTS;
+                if (teamReward > 0) {
+                    pendingReferralRewards[searchAddr] += teamReward;
+                    emit ReferralRewardsAccumulated(searchAddr, user, teamReward, 3);
+
+                    // ========== Peer Bonus (0.5%) ==========
+                    address leaderUpline = genesisNode.getReferrer(searchAddr);
+                    if (leaderUpline != address(0) && genesisNode.balanceOf(leaderUpline) > 0) {
+                        uint256 peerReward = (amount * PEER_BONUS_RATE) / BASIS_POINTS;
+                        if (peerReward > 0) {
+                            pendingReferralRewards[leaderUpline] += peerReward;
+                            emit ReferralRewardsAccumulated(leaderUpline, user, peerReward, 4);
+                        }
+                    }
+                }
+                break; // BREAKAWAY: Stop once team leader found
+            }
+            searchAddr = genesisNode.getReferrer(searchAddr);
+            iterations++;
+        }
+    }
+
     // ============ View Functions ============
 
     /**
@@ -1173,6 +1263,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
         totalMinted += totalPending;
         ivyToken.mint(address(this), totalPending);
 
+        // Track total rewards earned (V2.0 - for referral calculation)
+        totalRewardsEarned[msg.sender] += totalPending;
+
         // 5. Calculate Value via Oracle
         // Note: Oracle returns price with 18 decimals (1e18 = $1.0)
         uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
@@ -1257,6 +1350,9 @@ contract IvyCore is Ownable, ReentrancyGuard {
         totalMinted += compoundAmount;
         ivyToken.mint(address(this), compoundAmount);
 
+        // Track total rewards earned (V2.0 - for referral calculation)
+        totalRewardsEarned[msg.sender] += compoundAmount;
+
         // 6. Query IVY price from oracle
         uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
         require(ivyPrice > 0, "Oracle price is zero");
@@ -1274,6 +1370,123 @@ contract IvyCore is Ownable, ReentrancyGuard {
         ivyBond.addCompoundPower(tokenId, powerToAdd);
 
         emit VestedCompounded(msg.sender, tokenId, compoundAmount, powerToAdd);
+    }
+
+    // ╔═══════════════════════════════════════════════════════════════╗
+    // ║     REFERRAL REWARDS HARVEST & COMPOUND (V2.0)               ║
+    // ╠═══════════════════════════════════════════════════════════════╣
+    // ║  Purpose: Allow referrers to claim/compound rewards anytime  ║
+    // ║  Flow: pendingReferralRewards → harvest/compound → IVY/Power ║
+    // ╚═══════════════════════════════════════════════════════════════╝
+
+    /**
+     * @dev Harvest all pending referral rewards (enters 30-day vesting)
+     * Referrers can call this anytime to claim their accumulated referral rewards
+     */
+    function harvestReferralRewards() external nonReentrant {
+        address user = msg.sender;
+        uint256 pending = pendingReferralRewards[user];
+        require(pending > 0, "No pending referral rewards");
+
+        // Check mining cap
+        require(totalMinted < MINING_CAP, "Mining cap reached");
+
+        uint256 harvestAmount = pending;
+
+        // Calculate total rewards needed (including potential referral rewards on this harvest)
+        uint256 TOTAL_REFERRAL_RATE = L1_RATE + L2_RATE + INFINITE_RATE + PEER_BONUS_RATE;
+        uint256 estimatedReferralRewards = (harvestAmount * TOTAL_REFERRAL_RATE) / BASIS_POINTS;
+        uint256 totalRewardsNeeded = harvestAmount + estimatedReferralRewards;
+
+        // Adjust if would exceed mining cap
+        if (totalMinted + totalRewardsNeeded > MINING_CAP) {
+            uint256 availableSpace = MINING_CAP - totalMinted;
+            harvestAmount = (availableSpace * BASIS_POINTS) / (BASIS_POINTS + TOTAL_REFERRAL_RATE);
+        }
+
+        // Update pending referral rewards
+        pendingReferralRewards[user] -= harvestAmount;
+
+        // Track total rewards earned
+        totalRewardsEarned[user] += harvestAmount;
+
+        // Add to user's vesting (same as regular harvest)
+        UserInfo storage info = userInfo[user];
+        info.totalVested += harvestAmount;
+        if (info.vestingStartTime == 0) {
+            info.vestingStartTime = block.timestamp;
+        }
+
+        // Mint IVY to this contract for vesting
+        totalMinted += harvestAmount;
+        ivyToken.mint(address(this), harvestAmount);
+
+        // Check for halving
+        _checkHalving();
+
+        // Record referral reward history (level 0 = self-claim of referral rewards)
+        _recordReferralReward(user, address(0), harvestAmount, 0);
+
+        // NOTE: Referral rewards do NOT trigger additional referral rewards
+        // This prevents infinite recursion and matches original design intent
+
+        emit ReferralRewardsHarvested(user, harvestAmount);
+    }
+
+    /**
+     * @dev Compound pending referral rewards into Bond NFT with 10% bonus
+     * @param tokenId Bond NFT token ID to add power to
+     */
+    function compoundReferralRewards(uint256 tokenId) external nonReentrant {
+        address user = msg.sender;
+        require(ivyBond.ownerOfBond(tokenId) == user, "Not bond owner");
+
+        uint256 pending = pendingReferralRewards[user];
+        require(pending > 0, "No pending referral rewards");
+
+        // Check mining cap
+        uint256 compoundAmount = pending;
+        if (totalMinted + compoundAmount > MINING_CAP) {
+            compoundAmount = MINING_CAP > totalMinted ? MINING_CAP - totalMinted : 0;
+            require(compoundAmount > 0, "Mining cap reached");
+        }
+
+        // Update pending referral rewards
+        pendingReferralRewards[user] -= compoundAmount;
+
+        // Track total rewards earned
+        totalRewardsEarned[user] += compoundAmount;
+
+        // Mint IVY tokens
+        totalMinted += compoundAmount;
+        ivyToken.mint(address(this), compoundAmount);
+
+        // Query IVY price from oracle
+        uint256 ivyPrice = oracle.getAssetPrice(address(ivyToken));
+        require(ivyPrice > 0, "Oracle price is zero");
+
+        // Calculate USDT value
+        uint256 valueInUSDT = (compoundAmount * ivyPrice) / 10**18;
+
+        // Calculate power with 10% bonus
+        uint256 powerToAdd = (valueInUSDT * 110) / 100;
+
+        // Burn IVY tokens (deflationary)
+        ivyToken.transfer(address(0xdead), compoundAmount);
+
+        // Add power to Bond NFT
+        ivyBond.addCompoundPower(tokenId, powerToAdd);
+
+        emit ReferralRewardsCompounded(user, tokenId, compoundAmount, powerToAdd);
+    }
+
+    /**
+     * @dev Get user's pending referral rewards (view function)
+     * @param user User address
+     * @return pending Total pending referral rewards
+     */
+    function getPendingReferralRewards(address user) external view returns (uint256 pending) {
+        return pendingReferralRewards[user];
     }
 
     // ╔═══════════════════════════════════════════════════════════════╗

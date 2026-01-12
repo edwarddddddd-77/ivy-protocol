@@ -19,6 +19,30 @@ export function useTeamStats() {
     }
   });
 
+  // Read: Pending Referral Rewards (V2.0 - Real-time)
+  const { data: pendingReferralRewards, refetch: refetchPendingReferral } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: "getPendingReferralRewards",
+    args: [address || "0x0000000000000000000000000000000000000000"],
+    query: {
+      enabled: !!address,
+      refetchInterval: getSmartRefreshInterval('MINING_STATS'),
+    }
+  });
+
+  // Read: Direct Referral Count from GenesisNode (more reliable)
+  const { data: genesisDirectCount } = useReadContract({
+    address: addresses.GenesisNode as `0x${string}`,
+    abi: abis.GenesisNode,
+    functionName: "directReferralCount",
+    args: [address || "0x0000000000000000000000000000000000000000"],
+    query: {
+      enabled: !!address,
+      refetchInterval: getSmartRefreshInterval('MINING_STATS'),
+    }
+  });
+
   // Read: Team Statistics
   const { data: teamStats, refetch: refetchTeamStats } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
@@ -55,15 +79,28 @@ export function useTeamStats() {
     }
   });
 
-  // Parse referral summary
+  // Parse referral summary (use GenesisNode count as primary source)
   const summary = referralSummary as any;
+  const genesisCount = genesisDirectCount ? Number(genesisDirectCount) : 0;
   const parsedSummary = summary ? {
-    directReferralCount: Number(summary[0]),
+    // Use GenesisNode count if available (more reliable), fallback to IvyCore
+    directReferralCount: genesisCount > 0 ? genesisCount : Number(summary[0]),
     totalTeamSize: Number(summary[1]),
     totalReferralRewards: formatEther(summary[2] as bigint),
     rewardHistoryCount: Number(summary[3]),
     hasGenesisNode: Boolean(summary[4]),
-  } : null;
+  } : (genesisCount > 0 ? {
+    directReferralCount: genesisCount,
+    totalTeamSize: 0,
+    totalReferralRewards: "0",
+    rewardHistoryCount: 0,
+    hasGenesisNode: false,
+  } : null);
+
+  // Parse pending referral rewards (V2.0)
+  const parsedPendingReferral = pendingReferralRewards
+    ? formatEther(pendingReferralRewards as bigint)
+    : "0";
 
   // Parse team stats
   const stats = teamStats as any;
@@ -96,10 +133,12 @@ export function useTeamStats() {
     teamStats: parsedTeamStats,
     directReferrals: parsedDirectReferrals,
     performance: parsedPerformance,
+    pendingReferralRewards: parsedPendingReferral,
     refetch: {
       summary: refetchSummary,
       teamStats: refetchTeamStats,
       directReferrals: refetchDirectReferrals,
+      pendingReferral: refetchPendingReferral,
     },
   };
 }
