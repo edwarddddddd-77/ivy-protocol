@@ -233,11 +233,13 @@ export default function Team() {
             delay={0.2}
           />
 
-          {/* Total Rewards */}
+          {/* Total Rewards (earned + pending) */}
           <StatsCard
             icon={<Award className="w-5 h-5" />}
             label={t('team.total_rewards')}
-            value={`${formatNumber(summary?.totalReferralRewards || "0")} IVY`}
+            value={`${formatNumber(
+              (parseFloat(summary?.totalReferralRewards || "0") + pendingAmount).toString()
+            )} IVY`}
             color="purple"
             delay={0.3}
           />
