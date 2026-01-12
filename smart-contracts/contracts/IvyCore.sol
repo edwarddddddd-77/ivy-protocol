@@ -659,20 +659,45 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
         UserInfo storage info = userInfo[user];
 
-        // Get current bond power from IvyBond
-        uint256 newBondPower = 0;
+        // ╔═══════════════════════════════════════════════════════════════╗
+        // ║  WHITEPAPER COMPLIANT POWER CALCULATION                       ║
+        // ╠═══════════════════════════════════════════════════════════════╣
+        // ║  1. Deposit Power: Genesis Node 10% boost applies             ║
+        // ║  2. Compound Power: Already has 10% bonus, NO additional boost║
+        // ║                                                               ║
+        // ║  Formula:                                                     ║
+        // ║  effectivePower = depositPower × (1 + genesisBoost)           ║
+        // ║                 + compoundPower                               ║
+        // ║                                                               ║
+        // ║  Example (with Genesis Node):                                 ║
+        // ║  - Deposit 65,000 USDT → depositPower = 32,500                ║
+        // ║  - Genesis 10% boost → 32,500 × 1.1 = 35,750                  ║
+        // ║  - Compound 300 IVY × 1.1 → compoundPower = 330               ║
+        // ║  - Effective = 35,750 + 330 = 36,080                          ║
+        // ╚═══════════════════════════════════════════════════════════════╝
+
+        // Get deposit power (original bond power from deposits, excludes compound)
+        uint256 depositPower = 0;
+        uint256 totalBondPower = 0;
         if (address(ivyBond) != address(0)) {
-            newBondPower = ivyBond.getBondPower(user);
+            depositPower = ivyBond.getDepositPower(user);
+            totalBondPower = ivyBond.getBondPower(user);
         }
 
-        // Apply boost from GenesisNode
+        // Compound power = total - deposit (already includes 10% compound bonus)
+        uint256 compoundPower = totalBondPower > depositPower ? totalBondPower - depositPower : 0;
+
+        // Apply Genesis Node boost ONLY to deposit power
         uint256 totalBoost = 0;
         if (address(genesisNode) != address(0)) {
             totalBoost = genesisNode.getTotalBoost(user);
         }
 
-        // Effective bond power = bondPower * (1 + boost)
-        uint256 effectiveBondPower = (newBondPower * (BASIS_POINTS + totalBoost)) / BASIS_POINTS;
+        // Boosted deposit power = depositPower × (1 + boost%)
+        uint256 boostedDepositPower = (depositPower * (BASIS_POINTS + totalBoost)) / BASIS_POINTS;
+
+        // Effective = boosted deposit + compound (no double boost on compound)
+        uint256 effectiveBondPower = boostedDepositPower + compoundPower;
 
         // ╔═══════════════════════════════════════════════════════════════╗
         // ║  REAL-TIME REFERRAL: Register relationship on first deposit   ║

@@ -927,12 +927,37 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     function getBondPower(address user) external view returns (uint256) {
         uint256 balance = balanceOf(user);
         uint256 total = 0;
-        
+
         for (uint256 i = 0; i < balance; i++) {
             uint256 tokenId = tokenOfOwnerByIndex(user, i);
             total += bondData[tokenId].bondPower;
         }
-        
+
+        return total;
+    }
+
+    /**
+     * @dev Get deposit power for a user (original bond power from deposits)
+     * @notice This returns ONLY the initial deposit power (50% of deposit)
+     *         NOT including compound power. Used for Genesis Node boost calculation.
+     *
+     * ╔═══════════════════════════════════════════════════════════════╗
+     * ║  WHITEPAPER: Genesis Node 10% boost applies to DEPOSIT only   ║
+     * ║  Compound already has its own 10% bonus, no double boost      ║
+     * ╚═══════════════════════════════════════════════════════════════╝
+     *
+     * @param user User address
+     * @return Total original bond power from deposits (excludes compound power)
+     */
+    function getDepositPower(address user) external view returns (uint256) {
+        uint256 balance = balanceOf(user);
+        uint256 total = 0;
+
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = tokenOfOwnerByIndex(user, i);
+            total += bondData[tokenId].originalBondPower;
+        }
+
         return total;
     }
     

@@ -35,6 +35,15 @@ export function TreasuryPanel() {
     query: { enabled: !!address && isConnected }
   });
 
+  // Read deposit power (original bond power, excludes compound)
+  const { data: depositPowerData } = useReadContract({
+    address: addresses.IvyBond as `0x${string}`,
+    abi: abis.IvyBond,
+    functionName: 'getDepositPower',
+    args: [address],
+    query: { enabled: !!address && isConnected }
+  });
+
   // Read user's Bond NFT IDs
   const { data: bondIds, refetch: refetchBondIds } = useReadContract({
     address: addresses.IvyBond as `0x${string}`,
@@ -193,9 +202,18 @@ export function TreasuryPanel() {
   const selfBoostPercent = selfBoostBps / 100;
   const teamAuraPercent = teamAuraBps / 100;
 
-  // Calculate Effective Mining Power = Base Mining Power × (1 + TotalBoost%)
-  const effectiveMiningPower = baseMiningPower * (1 + userBoostPercent / 100);
-  const hasBoost = userBoostPercent > 0;
+  // ╔═══════════════════════════════════════════════════════════════╗
+  // ║  WHITEPAPER COMPLIANT POWER CALCULATION                       ║
+  // ╠═══════════════════════════════════════════════════════════════╣
+  // ║  1. Deposit Power: Genesis Node boost applies (Self 10%)      ║
+  // ║  2. Compound Power: Already has 10% bonus, NO additional boost║
+  // ║  Formula: effective = depositPower × (1 + boost) + compoundPower
+  // ╚═══════════════════════════════════════════════════════════════╝
+  const depositPower = depositPowerData ? Number(depositPowerData as any) / 1e18 : 0;
+  const compoundPower = baseMiningPower > depositPower ? baseMiningPower - depositPower : 0;
+  const boostedDepositPower = depositPower * (1 + userBoostPercent / 100);
+  const effectiveMiningPower = boostedDepositPower + compoundPower;
+  const hasBoost = userBoostPercent > 0 && depositPower > 0;
 
   const usdtBalanceNum = usdtBalance ? Number(usdtBalance as any) / 1e18 : 0;
   const depositAmountBigInt = depositAmount ? parseEther(depositAmount) : BigInt(0);
@@ -577,16 +595,20 @@ export function TreasuryPanel() {
             <span className="text-lg text-gray-400 ml-2">Power</span>
           </div>
           
-          {/* Boost Breakdown */}
+          {/* Power Calculation Breakdown */}
           <div className="mt-3 pt-3 border-t border-white/10">
-            <div className="text-[10px] text-gray-500 font-mono">
-              Formula: {baseMiningPower.toLocaleString()} (Bond Power) × (1 + {userBoostPercent}%) = {effectiveMiningPower.toLocaleString()}
+            <div className="text-[10px] text-gray-500 font-mono space-y-1">
+              <div>存款算力: {depositPower.toLocaleString()} × {hasBoost ? `(1 + ${userBoostPercent}%)` : '1'} = {boostedDepositPower.toLocaleString()}</div>
+              {compoundPower > 0 && (
+                <div>复投算力: +{compoundPower.toLocaleString()} (已含10%加成)</div>
+              )}
+              <div className="text-primary">有效算力: {effectiveMiningPower.toLocaleString()}</div>
             </div>
             {hasBoost && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {selfBoostPercent > 0 && (
                   <div className="px-2 py-1 bg-primary/10 rounded text-[10px] font-mono text-primary border border-primary/20">
-                    Self Boost: +{selfBoostPercent}%
+                    Genesis Self Boost: +{selfBoostPercent}%
                   </div>
                 )}
                 {teamAuraPercent > 0 && (

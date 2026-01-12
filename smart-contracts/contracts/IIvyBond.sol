@@ -10,7 +10,11 @@ pragma solidity ^0.8.20;
 interface IIvyBond {
     /// @notice Get user's total bond power (sum of all their Bond NFTs)
     function getBondPower(address user) external view returns (uint256);
-    
+
+    /// @notice Get user's deposit power (original bond power, excludes compound)
+    /// @dev Used for Genesis Node boost calculation (boost only applies to deposits)
+    function getDepositPower(address user) external view returns (uint256);
+
     /// @notice Get user's total bond power (alias for compatibility)
     function getUserTotalBondPower(address user) external view returns (uint256);
     
