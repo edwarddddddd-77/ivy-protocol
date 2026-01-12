@@ -213,6 +213,7 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
     );
     
     event IvyCoreSet(address indexed ivyCore);
+    event IvyCoreUpgraded(address indexed oldIvyCore, address indexed newIvyCore);
     event GenesisNodeSet(address indexed genesisNode);
     event IvyTokenSet(address indexed ivyToken);
     event ReferrerBound(address indexed user, address indexed referrer);
@@ -307,13 +308,26 @@ contract IvyBond is ERC721Enumerable, Ownable, ReentrancyGuard {
      * ╚═══════════════════════════════════════════════════════════════╝
      */
     function setIvyCore(address _ivyCore) external onlyOwner {
-        // ✅ FIX #3: Ensure IvyCore can only be set once
+        // ✅ FIX #3: Ensure IvyCore can only be set once (for initial setup)
         require(ivyCore == address(0), "IvyCore already set");
         require(_ivyCore != address(0), "Invalid IvyCore");
         ivyCore = _ivyCore;
         emit IvyCoreSet(_ivyCore);
     }
-    
+
+    /**
+     * @dev Upgrade IvyCore to a new version (for protocol upgrades)
+     * @notice This allows upgrading to new IvyCore with improved features
+     * @param _newIvyCore New IvyCore contract address
+     */
+    function upgradeIvyCore(address _newIvyCore) external onlyOwner {
+        require(_newIvyCore != address(0), "Invalid IvyCore");
+        require(_newIvyCore != ivyCore, "Same IvyCore address");
+        address oldIvyCore = ivyCore;
+        ivyCore = _newIvyCore;
+        emit IvyCoreUpgraded(oldIvyCore, _newIvyCore);
+    }
+
     /**
      * @dev Set the GenesisNode contract address (for referral binding)
      */

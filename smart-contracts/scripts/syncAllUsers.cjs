@@ -1,7 +1,7 @@
 const hre = require('hardhat');
 
 async function main() {
-    const IVY_CORE = '0xe740030549E04175E1Be30149a84Aa31ca928C40';
+    const IVY_CORE = '0x3d7d5A403A1F7Dc5D5A31C90b8Fbe0a8Ce12e945';
 
     // All users that need syncing
     const USERS = [

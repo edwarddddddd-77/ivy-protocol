@@ -9,9 +9,9 @@ async function main() {
     console.log('=== Finishing V2.0 Configuration ===');
     console.log('Deployer:', deployer.address);
 
-    // New contract addresses (from partial deployment)
-    const NEW_IVY_CORE = '0xe740030549E04175E1Be30149a84Aa31ca928C40';
-    const NEW_IVY_BOND = '0x43074789E0f1e671fD6f235E265862387474b4f1';
+    // New contract addresses (V2.1 real-time referral view + IvyBond upgrade capability)
+    const NEW_IVY_CORE = '0xc77eC3843Bcb2246dB16751D27D2E85FcF8f50B2';
+    const NEW_IVY_BOND = '0x970Abf4e24705d0Fd92E94743B972A1B5586E796';
 
     // Existing addresses
     const IVY_TOKEN = '0xd93ee28F81d0759748d273eac805e0f5053D7703';

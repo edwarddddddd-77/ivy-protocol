@@ -1049,6 +1049,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
         uint256 l1Reward = (amount * L1_RATE) / BASIS_POINTS;
         if (l1Reward > 0) {
             pendingReferralRewards[l1Referrer] += l1Reward;
+            referralRewardsEarned[l1Referrer] += l1Reward;  // Track cumulative total
             emit ReferralRewardsAccumulated(l1Referrer, user, l1Reward, 1);
         }
 
@@ -1058,6 +1059,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
             uint256 l2Reward = (amount * L2_RATE) / BASIS_POINTS;
             if (l2Reward > 0) {
                 pendingReferralRewards[l2Referrer] += l2Reward;
+                referralRewardsEarned[l2Referrer] += l2Reward;  // Track cumulative total
                 emit ReferralRewardsAccumulated(l2Referrer, user, l2Reward, 2);
             }
         }
@@ -1071,6 +1073,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
                 uint256 teamReward = (amount * INFINITE_RATE) / BASIS_POINTS;
                 if (teamReward > 0) {
                     pendingReferralRewards[searchAddr] += teamReward;
+                    referralRewardsEarned[searchAddr] += teamReward;  // Track cumulative total
                     emit ReferralRewardsAccumulated(searchAddr, user, teamReward, 3);
 
                     // ========== Peer Bonus (0.5%) ==========
@@ -1079,6 +1082,7 @@ contract IvyCore is Ownable, ReentrancyGuard {
                         uint256 peerReward = (amount * PEER_BONUS_RATE) / BASIS_POINTS;
                         if (peerReward > 0) {
                             pendingReferralRewards[leaderUpline] += peerReward;
+                            referralRewardsEarned[leaderUpline] += peerReward;  // Track cumulative total
                             emit ReferralRewardsAccumulated(leaderUpline, user, peerReward, 4);
                         }
                     }
@@ -1482,11 +1486,28 @@ contract IvyCore is Ownable, ReentrancyGuard {
 
     /**
      * @dev Get user's pending referral rewards (view function)
+     * @notice Returns real-time calculated rewards including direct referrals' current mining
      * @param user User address
-     * @return pending Total pending referral rewards
+     * @return pending Total pending referral rewards (accumulated + real-time L1)
      */
     function getPendingReferralRewards(address user) external view returns (uint256 pending) {
-        return pendingReferralRewards[user];
+        // Start with already accumulated rewards (waiting to be claimed)
+        pending = pendingReferralRewards[user];
+
+        // Add real-time L1 rewards from direct referrals' current pending mining
+        address[] storage refs = directReferrals[user];
+        for (uint i = 0; i < refs.length; i++) {
+            address ref = refs[i];
+            // Get referral's current uncredited mining rewards
+            uint256 refPending = pendingIvy(ref);
+            // Calculate L1 bonus (10%)
+            pending += (refPending * L1_RATE) / BASIS_POINTS;
+        }
+
+        // Note: L2/Team/Peer bonuses require complex tree traversal
+        // They will be credited when syncUser is called on the referrals
+
+        return pending;
     }
 
     // ╔═══════════════════════════════════════════════════════════════╗
