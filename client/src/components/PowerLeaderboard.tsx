@@ -37,10 +37,14 @@ export function PowerLeaderboard() {
   const userSharePercent = totalPoolPower > 0 ? (userBondPower / totalPoolPower) * 100 : 0;
 
   // Estimate rough rank based on power share
-  // If share >= 50%, you're #1 (you have more than everyone else combined)
-  // Otherwise, estimate based on share percentage
+  // Better algorithm: higher share = better rank
+  // 40%+ = #1, 25-40% = #2, 15-25% = #3, 10-15% = top 5, etc.
   const estimatedRank = userBondPower > 0
-    ? (userSharePercent >= 50 ? 1 : Math.max(1, Math.round(100 / userSharePercent)))
+    ? (userSharePercent >= 40 ? 1
+      : userSharePercent >= 25 ? 2
+      : userSharePercent >= 15 ? 3
+      : userSharePercent >= 10 ? Math.ceil(4 + (15 - userSharePercent) / 5)
+      : Math.ceil(10 + (10 - userSharePercent) * 2))
     : '-';
 
   const getRankBadge = (rank: number | string) => {
