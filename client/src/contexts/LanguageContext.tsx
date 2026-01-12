@@ -130,6 +130,9 @@ const translations: Record<Language, Record<string, string>> = {
     'referral.direct_refers': 'Direct Refers',
     'referral.ref_rewards': 'Ref Rewards',
     'referral.total_earned': 'Total Earned',
+    'referral.pending_rewards': 'Pending Rewards',
+    'referral.reward_tiers': 'Reward Tiers',
+    'referral.activated': 'Referral code activated!',
     
     // ==================== My Nodes ====================
     'myNodes.title': 'MY NODES',
@@ -300,6 +303,16 @@ const translations: Record<Language, Record<string, string>> = {
     'team.reward_l2_desc': 'of their rewards',
     'team.reward_l3_desc': 'from all downlines',
     'team.reward_peer_desc': 'when downline also holds GenesisNode',
+    // ==================== Power Leaderboard ====================
+    'leaderboard.title': 'Power Leaderboard',
+    'leaderboard.rank': 'Rank',
+    'leaderboard.address': 'Address',
+    'leaderboard.power': 'Power',
+    'leaderboard.share': 'Share',
+    'leaderboard.my_rank': 'My Rank',
+    'leaderboard.total_users': 'Total Users',
+    'leaderboard.no_data': 'No ranking data available',
+    'leaderboard.top_miners': 'Top Miners',
   },
   zh: {
     // ==================== 首頁 ====================
@@ -422,6 +435,9 @@ const translations: Record<Language, Record<string, string>> = {
     'referral.direct_refers': '直推人數',
     'referral.ref_rewards': '推廣獎勵',
     'referral.total_earned': '累計收益',
+    'referral.pending_rewards': '待領獎勵',
+    'referral.reward_tiers': '獎勵層級',
+    'referral.activated': '推廣代碼已激活！',
     
     // ==================== 我的節點 ====================
     'myNodes.title': '我的節點',
@@ -592,6 +608,16 @@ const translations: Record<Language, Record<string, string>> = {
     'team.reward_l2_desc': '獲得他們的獎勵',
     'team.reward_l3_desc': '從所有下級獲得',
     'team.reward_peer_desc': '當下級也持有創世節點時',
+    // ==================== 算力排行榜 ====================
+    'leaderboard.title': '算力排行榜',
+    'leaderboard.rank': '排名',
+    'leaderboard.address': '地址',
+    'leaderboard.power': '算力',
+    'leaderboard.share': '佔比',
+    'leaderboard.my_rank': '我的排名',
+    'leaderboard.total_users': '總用戶數',
+    'leaderboard.no_data': '暫無排名數據',
+    'leaderboard.top_miners': '頂級礦工',
   }
 };
 

@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlitchText } from '@/components/ui/GlitchText';
 import { IdentityPanel } from '@/components/IdentityPanel';
-import { ReferralCenter } from '@/components/ReferralCenter';
 import { Navbar } from '@/components/Navbar';
 import { MyNodes } from '@/components/MyNodes';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -84,8 +83,21 @@ export default function Nodes() {
               {/* My Nodes Display */}
               <MyNodes />
 
-              {/* Referral Center */}
-              <ReferralCenter />
+              {/* Referral Link - Redirect to Team Page */}
+              <GlassCard className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-white">{t('referral.title')}</h4>
+                    <p className="text-xs text-gray-400 mt-1">{t('referral.description')}</p>
+                  </div>
+                  <a 
+                    href="/team"
+                    className="px-4 py-2 border border-primary/30 text-primary text-sm font-mono hover:bg-primary/10 transition-colors rounded"
+                  >
+                    {t('team.copy_link')} →
+                  </a>
+                </div>
+              </GlassCard>
             </motion.div>
           </div>
 

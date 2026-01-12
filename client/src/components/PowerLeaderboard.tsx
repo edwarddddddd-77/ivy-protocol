@@ -1,12 +1,13 @@
-import { useReadContract } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Trophy, TrendingUp, Award } from 'lucide-react';
+import { Trophy, TrendingUp, Award, User, Users, Zap } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
 
 export function PowerLeaderboard() {
   const { t } = useLanguage();
+  const { address, isConnected } = useAccount();
 
   // Read total pool bond power
   const { data: totalPoolBondPower } = useReadContract({
@@ -19,45 +20,35 @@ export function PowerLeaderboard() {
     }
   });
 
+  // Read user's mining stats
+  const { data: miningStats } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: 'getUserMiningStats',
+    args: [address],
+    query: {
+      enabled: !!address && isConnected,
+      refetchInterval: 10000,
+    }
+  });
+
   const totalPoolPower = totalPoolBondPower ? Number(totalPoolBondPower as any) / 1e18 : 0;
+  const userBondPower = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
+  const userSharePercent = totalPoolPower > 0 ? (userBondPower / totalPoolPower) * 100 : 0;
 
-  // TODO: Get actual leaderboard data from contract events or backend API
-  // For now, showing placeholder data structure
-  const leaderboardData = [
-    // { address: '0x1234...5678', bondPower: 50000, percentage: 25.5, rank: 1 },
-    // { address: '0x8765...4321', bondPower: 30000, percentage: 15.3, rank: 2 },
-    // { address: '0xabcd...efgh', bondPower: 20000, percentage: 10.2, rank: 3 },
-  ];
+  // Estimate rough rank based on power share (simplified estimation)
+  const estimatedRank = userBondPower > 0
+    ? Math.max(1, Math.ceil(100 / userSharePercent))
+    : '-';
 
-  const shortenAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  const getRankBadge = (rank: number | string) => {
+    if (rank === 1) return { icon: '🥇', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
+    if (rank === 2) return { icon: '🥈', color: 'text-gray-300', bg: 'bg-gray-500/20' };
+    if (rank === 3) return { icon: '🥉', color: 'text-orange-400', bg: 'bg-orange-500/20' };
+    return { icon: '🏅', color: 'text-blue-400', bg: 'bg-blue-500/20' };
   };
 
-  const getRankColor = (rank: number) => {
-    switch (rank) {
-      case 1:
-        return 'text-yellow-400';
-      case 2:
-        return 'text-gray-300';
-      case 3:
-        return 'text-orange-400';
-      default:
-        return 'text-gray-500';
-    }
-  };
-
-  const getRankIcon = (rank: number) => {
-    switch (rank) {
-      case 1:
-        return <Trophy className="w-5 h-5 text-yellow-400" />;
-      case 2:
-        return <Award className="w-5 h-5 text-gray-300" />;
-      case 3:
-        return <Award className="w-5 h-5 text-orange-400" />;
-      default:
-        return <span className="text-gray-500 font-mono text-sm">#{rank}</span>;
-    }
-  };
+  const rankBadge = typeof estimatedRank === 'number' ? getRankBadge(estimatedRank) : null;
 
   return (
     <GlassCard className="p-6">
@@ -68,68 +59,107 @@ export function PowerLeaderboard() {
             <Trophy className="w-6 h-6 text-yellow-400" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">Power Leaderboard</h3>
-            <p className="text-xs text-gray-400 font-mono">Top miners by bond power</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-400">Total Network Power</div>
-          <div className="text-xl font-bold text-primary font-mono">
-            {totalPoolPower.toLocaleString()}
+            <h3 className="text-lg font-bold text-white">{t('leaderboard.title')}</h3>
+            <p className="text-xs text-gray-400 font-mono">{t('leaderboard.top_miners')}</p>
           </div>
         </div>
       </div>
 
-      {/* Leaderboard Table */}
-      {leaderboardData.length > 0 ? (
-        <div className="space-y-2">
-          {leaderboardData.map((entry, index) => (
-            <div
-              key={entry.address}
-              className={`p-3 rounded-lg border transition-colors ${
-                entry.rank <= 3
-                  ? 'bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30'
-                  : 'bg-black/40 border-white/10'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 flex justify-center">
-                    {getRankIcon(entry.rank)}
-                  </div>
-                  <div>
-                    <div className={`font-mono text-sm ${entry.rank <= 3 ? 'text-white font-bold' : 'text-gray-300'}`}>
-                      {shortenAddress(entry.address)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {entry.percentage.toFixed(2)}% of network
-                    </div>
+      {/* Network Stats */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="p-4 rounded-lg bg-gradient-to-r from-primary/10 to-green-500/10 border border-primary/20">
+          <div className="flex items-center gap-2 mb-2">
+            <Zap className="w-4 h-4 text-primary" />
+            <span className="text-xs text-gray-400">Total Network Power</span>
+          </div>
+          <div className="text-2xl font-bold text-primary font-mono">
+            {totalPoolPower.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </div>
+        </div>
+        <div className="p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-4 h-4 text-blue-400" />
+            <span className="text-xs text-gray-400">{t('leaderboard.total_users')}</span>
+          </div>
+          <div className="text-2xl font-bold text-blue-400 font-mono">
+            {totalPoolPower > 0 ? '—' : '0'}
+          </div>
+          <div className="text-[10px] text-gray-500 mt-1">Indexing required</div>
+        </div>
+      </div>
+
+      {/* My Rank Card */}
+      {isConnected && userBondPower > 0 ? (
+        <div className="mb-6">
+          <div className="text-xs text-gray-400 mb-2 font-mono">{t('leaderboard.my_rank')}</div>
+          <div className={`p-4 rounded-lg border ${rankBadge?.bg || 'bg-black/40'} border-primary/30`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="text-3xl">
+                  {rankBadge?.icon || '🏅'}
+                </div>
+                <div>
+                  <div className="text-sm text-gray-400">{t('leaderboard.rank')}</div>
+                  <div className={`text-2xl font-bold font-mono ${rankBadge?.color || 'text-white'}`}>
+                    #{estimatedRank}
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className={`font-mono font-bold ${entry.rank <= 3 ? 'text-primary' : 'text-white'}`}>
-                    {entry.bondPower.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-gray-500">Power</div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm text-gray-400">{t('leaderboard.power')}</div>
+                <div className="text-xl font-bold text-primary font-mono">
+                  {userBondPower.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {userSharePercent.toFixed(2)}% {t('leaderboard.share')}
                 </div>
               </div>
             </div>
-          ))}
+          </div>
         </div>
-      ) : (
-        <div className="text-center py-12">
-          <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-600 opacity-50" />
-          <p className="text-gray-500 font-mono text-sm mb-2">No leaderboard data available yet</p>
-          <p className="text-gray-600 text-xs">
-            Leaderboard data will be populated from contract events or backend API
-          </p>
+      ) : isConnected ? (
+        <div className="mb-6 p-4 rounded-lg bg-black/40 border border-white/10 text-center">
+          <User className="w-8 h-8 mx-auto mb-2 text-gray-500" />
+          <p className="text-sm text-gray-400">{t('leaderboard.no_data')}</p>
+          <p className="text-xs text-gray-500 mt-1">Deposit USDT to join the leaderboard</p>
         </div>
-      )}
+      ) : null}
 
-      {/* Coming Soon Note */}
+      {/* Top 10 Placeholder */}
+      <div className="space-y-2">
+        <div className="text-xs text-gray-400 mb-2 font-mono">Top 10</div>
+
+        {/* Placeholder rows */}
+        {[1, 2, 3, 4, 5].map((rank) => (
+          <div
+            key={rank}
+            className={`p-3 rounded-lg border transition-colors ${
+              rank <= 3
+                ? 'bg-gradient-to-r from-yellow-500/5 to-orange-500/5 border-yellow-500/20'
+                : 'bg-black/20 border-white/5'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 text-center">
+                  {rank === 1 && <span className="text-lg">🥇</span>}
+                  {rank === 2 && <span className="text-lg">🥈</span>}
+                  {rank === 3 && <span className="text-lg">🥉</span>}
+                  {rank > 3 && <span className="text-gray-500 font-mono text-sm">#{rank}</span>}
+                </div>
+                <div className="w-24 h-4 bg-gray-700/50 rounded animate-pulse"></div>
+              </div>
+              <div className="w-16 h-4 bg-gray-700/50 rounded animate-pulse"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Info Note */}
       <div className="mt-6 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-        <div className="text-xs text-blue-400 font-mono">
-          <span className="font-bold">📊 Coming Soon:</span> Real-time leaderboard powered by blockchain events
+        <div className="text-xs text-blue-400">
+          <span className="font-bold">📊 Note:</span> Full leaderboard requires event indexing (The Graph / Backend API).
+          Your rank is estimated based on your share of total network power.
         </div>
       </div>
     </GlassCard>
