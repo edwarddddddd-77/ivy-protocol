@@ -1,51 +1,95 @@
-import { useAccount, useReadContract } from 'wagmi';
+import { useAccount, useReadContracts } from 'wagmi';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Trophy, TrendingUp, Award, User, Users, Zap } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useMemo } from 'react';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
+
+// Known users for testnet leaderboard (will be replaced with indexer on mainnet)
+const KNOWN_USERS = [
+  '0x1140471923924D0dc15b6Df516c44212E9E59695',
+  '0x7e2DF46BbFFCd7C61b66a46858e58bC410FA1AAE',
+  '0x1f9E611B492929b25565268f426396BF7C08EB26',
+];
 
 export function PowerLeaderboard() {
   const { t } = useLanguage();
   const { address, isConnected } = useAccount();
 
-  // Read total pool bond power
-  const { data: totalPoolBondPower } = useReadContract({
-    address: addresses.IvyCore as `0x${string}`,
-    abi: abis.IvyCore,
-    functionName: 'totalPoolBondPower',
-    args: [],
+  // Read total pool bond power and all known users' mining stats in one call
+  const contracts = useMemo(() => {
+    const calls: any[] = [
+      {
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'totalPoolBondPower',
+        args: [],
+      },
+    ];
+
+    // Add calls for each known user
+    KNOWN_USERS.forEach((userAddr) => {
+      calls.push({
+        address: addresses.IvyCore as `0x${string}`,
+        abi: abis.IvyCore,
+        functionName: 'getUserMiningStats',
+        args: [userAddr],
+      });
+    });
+
+    return calls;
+  }, []);
+
+  const { data: results } = useReadContracts({
+    contracts,
     query: {
       refetchInterval: 10000,
-    }
+    },
   });
 
-  // Read user's mining stats
-  const { data: miningStats } = useReadContract({
-    address: addresses.IvyCore as `0x${string}`,
-    abi: abis.IvyCore,
-    functionName: 'getUserMiningStats',
-    args: [address],
-    query: {
-      enabled: !!address && isConnected,
-      refetchInterval: 10000,
-    }
-  });
+  // Parse results
+  const totalPoolPower = results?.[0]?.result ? Number(results[0].result as any) / 1e18 : 0;
 
-  const totalPoolPower = totalPoolBondPower ? Number(totalPoolBondPower as any) / 1e18 : 0;
-  const userBondPower = miningStats ? Number((miningStats as any)[0]) / 1e18 : 0;
-  const userSharePercent = totalPoolPower > 0 ? (userBondPower / totalPoolPower) * 100 : 0;
+  // Build leaderboard data
+  const leaderboardData = useMemo(() => {
+    if (!results || results.length < 2) return [];
 
-  // Estimate rough rank based on power share
-  // Better algorithm: higher share = better rank
-  // 40%+ = #1, 25-40% = #2, 15-25% = #3, 10-15% = top 5, etc.
-  const estimatedRank = userBondPower > 0
-    ? (userSharePercent >= 40 ? 1
-      : userSharePercent >= 25 ? 2
-      : userSharePercent >= 15 ? 3
-      : userSharePercent >= 10 ? Math.ceil(4 + (15 - userSharePercent) / 5)
-      : Math.ceil(10 + (10 - userSharePercent) * 2))
-    : '-';
+    const users: { address: string; power: number; sharePercent: number }[] = [];
+
+    KNOWN_USERS.forEach((userAddr, index) => {
+      const statsResult = results[index + 1]; // +1 because first result is totalPoolBondPower
+      if (statsResult?.result) {
+        const power = Number((statsResult.result as any)[0]) / 1e18;
+        if (power > 0) {
+          users.push({
+            address: userAddr,
+            power,
+            sharePercent: totalPoolPower > 0 ? (power / totalPoolPower) * 100 : 0,
+          });
+        }
+      }
+    });
+
+    // Sort by power descending
+    return users.sort((a, b) => b.power - a.power);
+  }, [results, totalPoolPower]);
+
+  // Find current user's rank
+  const currentUserRank = useMemo(() => {
+    if (!address) return null;
+    const index = leaderboardData.findIndex(
+      (u) => u.address.toLowerCase() === address.toLowerCase()
+    );
+    return index >= 0 ? index + 1 : null;
+  }, [leaderboardData, address]);
+
+  const currentUserData = useMemo(() => {
+    if (!address) return null;
+    return leaderboardData.find(
+      (u) => u.address.toLowerCase() === address.toLowerCase()
+    );
+  }, [leaderboardData, address]);
 
   const getRankBadge = (rank: number | string) => {
     if (rank === 1) return { icon: '🥇', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
@@ -54,7 +98,11 @@ export function PowerLeaderboard() {
     return { icon: '🏅', color: 'text-blue-400', bg: 'bg-blue-500/20' };
   };
 
-  const rankBadge = typeof estimatedRank === 'number' ? getRankBadge(estimatedRank) : null;
+  const formatAddress = (addr: string) => {
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
+
+  const rankBadge = currentUserRank ? getRankBadge(currentUserRank) : null;
 
   return (
     <GlassCard className="p-6">
@@ -88,14 +136,13 @@ export function PowerLeaderboard() {
             <span className="text-xs text-gray-400">{t('leaderboard.total_users')}</span>
           </div>
           <div className="text-2xl font-bold text-blue-400 font-mono">
-            {totalPoolPower > 0 ? '—' : '0'}
+            {leaderboardData.length}
           </div>
-          <div className="text-[10px] text-gray-500 mt-1">{t('leaderboard.indexing_required')}</div>
         </div>
       </div>
 
       {/* My Rank Card */}
-      {isConnected && userBondPower > 0 ? (
+      {isConnected && currentUserData ? (
         <div className="mb-6">
           <div className="text-xs text-gray-400 mb-2 font-mono">{t('leaderboard.my_rank')}</div>
           <div className={`p-4 rounded-lg border ${rankBadge?.bg || 'bg-black/40'} border-primary/30`}>
@@ -107,17 +154,17 @@ export function PowerLeaderboard() {
                 <div>
                   <div className="text-sm text-gray-400">{t('leaderboard.rank')}</div>
                   <div className={`text-2xl font-bold font-mono ${rankBadge?.color || 'text-white'}`}>
-                    #{estimatedRank}
+                    #{currentUserRank}
                   </div>
                 </div>
               </div>
               <div className="text-right">
                 <div className="text-sm text-gray-400">{t('leaderboard.power')}</div>
                 <div className="text-xl font-bold text-primary font-mono">
-                  {userBondPower.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {currentUserData.power.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {userSharePercent.toFixed(2)}% {t('leaderboard.share')}
+                  {currentUserData.sharePercent.toFixed(2)}% {t('leaderboard.share')}
                 </div>
               </div>
             </div>
@@ -131,34 +178,60 @@ export function PowerLeaderboard() {
         </div>
       ) : null}
 
-      {/* Top 10 Placeholder */}
+      {/* Real Leaderboard */}
       <div className="space-y-2">
-        <div className="text-xs text-gray-400 mb-2 font-mono">Top 10</div>
+        <div className="text-xs text-gray-400 mb-2 font-mono">
+          Top {Math.min(leaderboardData.length, 10)}
+        </div>
 
-        {/* Placeholder rows */}
-        {[1, 2, 3, 4, 5].map((rank) => (
-          <div
-            key={rank}
-            className={`p-3 rounded-lg border transition-colors ${
-              rank <= 3
-                ? 'bg-gradient-to-r from-yellow-500/5 to-orange-500/5 border-yellow-500/20'
-                : 'bg-black/20 border-white/5'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 text-center">
-                  {rank === 1 && <span className="text-lg">🥇</span>}
-                  {rank === 2 && <span className="text-lg">🥈</span>}
-                  {rank === 3 && <span className="text-lg">🥉</span>}
-                  {rank > 3 && <span className="text-gray-500 font-mono text-sm">#{rank}</span>}
+        {leaderboardData.length > 0 ? (
+          leaderboardData.slice(0, 10).map((user, index) => {
+            const rank = index + 1;
+            const isCurrentUser = address?.toLowerCase() === user.address.toLowerCase();
+            const badge = getRankBadge(rank);
+
+            return (
+              <div
+                key={user.address}
+                className={`p-3 rounded-lg border transition-colors ${
+                  isCurrentUser
+                    ? 'bg-gradient-to-r from-primary/20 to-green-500/20 border-primary/50'
+                    : rank <= 3
+                    ? 'bg-gradient-to-r from-yellow-500/5 to-orange-500/5 border-yellow-500/20'
+                    : 'bg-black/20 border-white/5'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 text-center">
+                      {rank <= 3 ? (
+                        <span className="text-lg">{badge.icon}</span>
+                      ) : (
+                        <span className="text-gray-500 font-mono text-sm">#{rank}</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className={`font-mono text-sm ${isCurrentUser ? 'text-primary font-bold' : 'text-white'}`}>
+                        {formatAddress(user.address)}
+                        {isCurrentUser && <span className="ml-2 text-xs text-primary">(You)</span>}
+                      </div>
+                      <div className="text-[10px] text-gray-500">
+                        {user.sharePercent.toFixed(2)}% share
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`font-mono font-bold ${rank === 1 ? 'text-yellow-400' : rank === 2 ? 'text-gray-300' : rank === 3 ? 'text-orange-400' : 'text-white'}`}>
+                    {user.power.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
                 </div>
-                <div className="w-24 h-4 bg-gray-700/50 rounded animate-pulse"></div>
               </div>
-              <div className="w-16 h-4 bg-gray-700/50 rounded animate-pulse"></div>
-            </div>
+            );
+          })
+        ) : (
+          <div className="p-4 text-center text-gray-500 text-sm">
+            No miners yet
           </div>
-        ))}
+        )}
       </div>
 
       {/* Info Note */}
