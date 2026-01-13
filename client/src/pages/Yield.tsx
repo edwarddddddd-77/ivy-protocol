@@ -5,6 +5,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { GlitchText } from '@/components/ui/GlitchText';
 import { TreasuryPanel } from '@/components/TreasuryPanel';
 import { Navbar } from '@/components/Navbar';
+import { SyncDetector } from '@/components/SyncDetector';
 import { ArrowRight, TrendingUp, Shield, Coins } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
@@ -61,6 +62,7 @@ export default function Yield() {
   return (
     <div className="min-h-screen w-full bg-slate-950 text-white overflow-hidden relative selection:bg-blue-400 selection:text-black">
       <Navbar currentPage="yield" />
+      <SyncDetector />
 
       <div className="pt-28 px-4 pb-12">
         <div className="container mx-auto max-w-6xl space-y-8">

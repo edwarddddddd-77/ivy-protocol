@@ -371,6 +371,10 @@ const translations: Record<Language, Record<string, string>> = {
     'leaderboard.deposit_to_join': 'Deposit USDT to join the leaderboard',
     'leaderboard.note_title': 'Note',
     'leaderboard.note_desc': 'Full leaderboard requires event indexing. Your rank is estimated based on your share of total network power.',
+    // ==================== Sync Detector ====================
+    'sync.title': 'Sync Required',
+    'sync.description': 'Your mining data needs to be synced with the latest contract. This is required after protocol upgrades.',
+    'sync.button': 'Sync Now',
   },
   zh: {
     // ==================== 首頁 ====================
@@ -734,6 +738,10 @@ const translations: Record<Language, Record<string, string>> = {
     'leaderboard.deposit_to_join': '存入 USDT 加入排行榜',
     'leaderboard.note_title': '提示',
     'leaderboard.note_desc': '完整排行榜需要事件索引。您的排名是根據您在全網算力中的佔比估算的。',
+    // ==================== 同步檢測 ====================
+    'sync.title': '需要同步',
+    'sync.description': '您的挖礦數據需要與最新合約同步。這在協議升級後是必需的。',
+    'sync.button': '立即同步',
   }
 };
 

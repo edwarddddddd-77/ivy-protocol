@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
+import { SyncDetector } from "@/components/SyncDetector";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTeamStats } from "@/hooks/useTeamStats";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
@@ -161,6 +162,7 @@ export default function Team() {
 
       {/* Navbar */}
       <Navbar currentPage="team" />
+      <SyncDetector />
 
       <main className="relative z-10 container mx-auto px-4 pt-28 pb-12 space-y-8">
         {/* Header */}
