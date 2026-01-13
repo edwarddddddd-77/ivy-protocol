@@ -1633,16 +1633,30 @@ contract IvyCore is Ownable, ReentrancyGuard {
             address ref = referrals[i];
             bondPowers[i] = userInfo[ref].bondPower;
 
-            // Calculate total rewards from this referral (L1 10% + L2 5% + extras)
-            // Approximation: count L1 rewards in history
-            uint256 rewards = 0;
+            // ╔═══════════════════════════════════════════════════════════════╗
+            // ║  REAL-TIME REWARDS: Historical + Pending from each referral   ║
+            // ╚═══════════════════════════════════════════════════════════════╝
+
+            // 1. Historical rewards (already harvested/compounded)
+            uint256 historicalRewards = 0;
             ReferralRewardRecord[] storage history = referralRewardHistory[user];
             for (uint256 j = 0; j < history.length; j++) {
                 if (history[j].fromUser == ref && history[j].level == 1) {
-                    rewards += history[j].amount;
+                    historicalRewards += history[j].amount;
                 }
             }
-            totalRewards[i] = rewards;
+
+            // 2. Real-time pending rewards from this referral's mining
+            uint256 pendingRewards = 0;
+            uint256 refPending = pendingIvy(ref);
+            if (refPending > 0) {
+                pendingRewards = (refPending * L1_RATE) / BASIS_POINTS;
+            }
+
+            // 3. Already accumulated but not yet harvested
+            // (from referralRewardsEarned minus what's in history)
+            // For simplicity, just show historical + pending
+            totalRewards[i] = historicalRewards + pendingRewards;
         }
     }
 
