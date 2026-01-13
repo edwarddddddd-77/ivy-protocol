@@ -1,23 +1,20 @@
 import { useAccount, useReadContracts } from 'wagmi';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Trophy, TrendingUp, Award, User, Users, Zap } from 'lucide-react';
+import { Trophy, TrendingUp, Award, User, Users, Zap, RefreshCw } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useMemo } from 'react';
+import { useUserIndex } from '@/hooks/useUserIndex';
 import addresses from '@/contracts/addresses.json';
 import abis from '@/contracts/abis.json';
-
-// Known users for testnet leaderboard (will be replaced with indexer on mainnet)
-const KNOWN_USERS = [
-  '0x1140471923924D0dc15b6Df516c44212E9E59695',
-  '0x7e2DF46BbFFCd7C61b66a46858e58bC410FA1AAE',
-  '0x1f9E611B492929b25565268f426396BF7C08EB26',
-];
 
 export function PowerLeaderboard() {
   const { t } = useLanguage();
   const { address, isConnected } = useAccount();
 
-  // Read total pool bond power and all known users' mining stats in one call
+  // Get indexed users from events
+  const { users: indexedUsers, isLoading: isIndexing, refetch: refetchIndex } = useUserIndex();
+
+  // Read total pool bond power and all indexed users' mining stats in one call
   const contracts = useMemo(() => {
     const calls: any[] = [
       {
@@ -28,8 +25,8 @@ export function PowerLeaderboard() {
       },
     ];
 
-    // Add calls for each known user
-    KNOWN_USERS.forEach((userAddr) => {
+    // Add calls for each indexed user
+    indexedUsers.forEach((userAddr) => {
       calls.push({
         address: addresses.IvyCore as `0x${string}`,
         abi: abis.IvyCore,
@@ -39,11 +36,12 @@ export function PowerLeaderboard() {
     });
 
     return calls;
-  }, []);
+  }, [indexedUsers]);
 
-  const { data: results } = useReadContracts({
+  const { data: results, refetch: refetchStats } = useReadContracts({
     contracts,
     query: {
+      enabled: indexedUsers.length > 0,
       refetchInterval: 10000,
     },
   });
@@ -53,11 +51,11 @@ export function PowerLeaderboard() {
 
   // Build leaderboard data
   const leaderboardData = useMemo(() => {
-    if (!results || results.length < 2) return [];
+    if (!results || results.length < 2 || indexedUsers.length === 0) return [];
 
     const users: { address: string; power: number; sharePercent: number }[] = [];
 
-    KNOWN_USERS.forEach((userAddr, index) => {
+    indexedUsers.forEach((userAddr, index) => {
       const statsResult = results[index + 1]; // +1 because first result is totalPoolBondPower
       if (statsResult?.result) {
         const power = Number((statsResult.result as any)[0]) / 1e18;
@@ -73,7 +71,7 @@ export function PowerLeaderboard() {
 
     // Sort by power descending
     return users.sort((a, b) => b.power - a.power);
-  }, [results, totalPoolPower]);
+  }, [results, totalPoolPower, indexedUsers]);
 
   // Find current user's rank
   const currentUserRank = useMemo(() => {
@@ -114,9 +112,18 @@ export function PowerLeaderboard() {
           </div>
           <div>
             <h3 className="text-lg font-bold text-white">{t('leaderboard.title')}</h3>
-            <p className="text-xs text-gray-400 font-mono">{t('leaderboard.top_miners')}</p>
+            <p className="text-xs text-gray-400 font-mono">
+              {isIndexing ? 'Indexing users...' : `${indexedUsers.length} users indexed`}
+            </p>
           </div>
         </div>
+        <button
+          onClick={() => { refetchIndex(); refetchStats(); }}
+          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+          title="Refresh leaderboard"
+        >
+          <RefreshCw className={`w-4 h-4 text-gray-400 ${isIndexing ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
       {/* Network Stats */}
