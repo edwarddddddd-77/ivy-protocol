@@ -213,7 +213,7 @@ export default function Team() {
         </motion.div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
           {/* Direct Referrals */}
           <StatsCard
             icon={<UserPlus className="w-5 h-5" />}
@@ -590,8 +590,9 @@ function StatsCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
+      className="h-full"
     >
-      <Card className={`${colors[color]} backdrop-blur-sm p-4 border`}>
+      <Card className={`${colors[color]} backdrop-blur-sm p-4 border h-full min-h-[140px] flex flex-col`}>
         <div className="flex items-start justify-between mb-3">
           <div className={`p-2 rounded-lg bg-black/30 ${iconColors[color]}`}>
             {icon}
@@ -600,14 +601,16 @@ function StatsCard({
         <p className="text-xs font-mono text-slate-400 uppercase tracking-wider mb-1">
           {label}
         </p>
-        <p className="text-2xl font-display font-bold text-white">
+        <p className="text-2xl font-display font-bold text-white flex-grow flex items-center">
           {value}
         </p>
-        {subValue && (
-          <p className="text-xs font-mono text-slate-500 mt-1">
-            {subValue}
-          </p>
-        )}
+        <div className="h-4 mt-1">
+          {subValue && (
+            <p className="text-xs font-mono text-slate-500">
+              {subValue}
+            </p>
+          )}
+        </div>
       </Card>
     </motion.div>
   );
