@@ -9,6 +9,9 @@ import {
 import { useState, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { SyncDetector } from "@/components/SyncDetector";
+import { RewardHistory } from "@/components/RewardHistory";
+import { ReferralQRCode } from "@/components/ReferralQRCode";
+import { TeamTree } from "@/components/TeamTree";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTeamStats } from "@/hooks/useTeamStats";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
@@ -202,16 +205,19 @@ export default function Team() {
                     {address ? `https://www.ivyprotocol.io?ref=${address}` : 'Connect wallet to generate link'}
                   </p>
                 </div>
-                <Button
-                  onClick={handleCopyReferral}
-                  className="bg-[#39FF14] text-black hover:bg-[#39FF14]/80 font-mono text-sm gap-2"
-                >
-                  {copiedIndex === -1 ? (
-                    <><Check className="w-4 h-4" /> {t('team.copied')}</>
-                  ) : (
-                    <><Copy className="w-4 h-4" /> {t('team.copy_link')}</>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <ReferralQRCode compact />
+                  <Button
+                    onClick={handleCopyReferral}
+                    className="bg-[#39FF14] text-black hover:bg-[#39FF14]/80 font-mono text-sm gap-2"
+                  >
+                    {copiedIndex === -1 ? (
+                      <><Check className="w-4 h-4" /> {t('team.copied')}</>
+                    ) : (
+                      <><Copy className="w-4 h-4" /> {t('team.copy_link')}</>
+                    )}
+                  </Button>
+                </div>
               </div>
             </Card>
           )}
@@ -258,6 +264,17 @@ export default function Team() {
             delay={0.4}
           />
         </div>
+
+        {/* QR Code Card */}
+        {address && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.42 }}
+          >
+            <ReferralQRCode />
+          </motion.div>
+        )}
 
         {/* My Referral Rewards Card (V2.1 - Split View) */}
         {address && (
@@ -503,6 +520,24 @@ export default function Team() {
               </div>
             </div>
           </Card>
+        </motion.div>
+
+        {/* Team Tree */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.72 }}
+        >
+          <TeamTree />
+        </motion.div>
+
+        {/* Reward History */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.75 }}
+        >
+          <RewardHistory />
         </motion.div>
 
         {/* Power Leaderboard */}

@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { FaucetModal } from '@/components/FaucetModal';
 
 interface NavbarProps {
-  currentPage?: 'home' | 'nodes' | 'yield' | 'team';
+  currentPage?: 'home' | 'nodes' | 'yield' | 'team' | 'market' | 'dao';
 }
 
 export function Navbar({ currentPage }: NavbarProps) {
@@ -22,6 +22,8 @@ export function Navbar({ currentPage }: NavbarProps) {
     { key: 'nodes', label: t('nav.nodes'), path: '/nodes', page: 'nodes' as const },
     { key: 'yield', label: t('nav.yield'), path: '/yield', page: 'yield' as const },
     { key: 'team', label: t('nav.team'), path: '/team', page: 'team' as const },
+    { key: 'market', label: t('nav.market'), path: '/market', page: 'market' as const },
+    { key: 'dao', label: t('nav.dao'), path: '/dao', page: 'dao' as const },
   ];
 
   return (
@@ -87,8 +89,8 @@ export function Navbar({ currentPage }: NavbarProps) {
               <button
                 onClick={() => setLanguage('en')}
                 className={`px-2 py-1 text-xs font-mono rounded transition-colors ${
-                  language === 'en' 
-                    ? 'bg-[#39FF14]/20 text-[#39FF14]' 
+                  language === 'en'
+                    ? 'bg-[#39FF14]/20 text-[#39FF14]'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -97,12 +99,32 @@ export function Navbar({ currentPage }: NavbarProps) {
               <button
                 onClick={() => setLanguage('zh')}
                 className={`px-2 py-1 text-xs font-mono rounded transition-colors ${
-                  language === 'zh' 
-                    ? 'bg-[#39FF14]/20 text-[#39FF14]' 
+                  language === 'zh'
+                    ? 'bg-[#39FF14]/20 text-[#39FF14]'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 繁
+              </button>
+              <button
+                onClick={() => setLanguage('ko')}
+                className={`px-2 py-1 text-xs font-mono rounded transition-colors ${
+                  language === 'ko'
+                    ? 'bg-[#39FF14]/20 text-[#39FF14]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                한
+              </button>
+              <button
+                onClick={() => setLanguage('es')}
+                className={`px-2 py-1 text-xs font-mono rounded transition-colors ${
+                  language === 'es'
+                    ? 'bg-[#39FF14]/20 text-[#39FF14]'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                ES
               </button>
             </div>
 
@@ -249,12 +271,12 @@ export function Navbar({ currentPage }: NavbarProps) {
             </Button>
             
             {/* Mobile Language Switcher */}
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
               <button
                 onClick={() => setLanguage('en')}
-                className={`px-4 py-2 text-sm font-mono rounded border ${
-                  language === 'en' 
-                    ? 'border-[#39FF14] text-[#39FF14]' 
+                className={`px-3 py-2 text-sm font-mono rounded border ${
+                  language === 'en'
+                    ? 'border-[#39FF14] text-[#39FF14]'
                     : 'border-white/20 text-gray-400'
                 }`}
               >
@@ -262,13 +284,33 @@ export function Navbar({ currentPage }: NavbarProps) {
               </button>
               <button
                 onClick={() => setLanguage('zh')}
-                className={`px-4 py-2 text-sm font-mono rounded border ${
-                  language === 'zh' 
-                    ? 'border-[#39FF14] text-[#39FF14]' 
+                className={`px-3 py-2 text-sm font-mono rounded border ${
+                  language === 'zh'
+                    ? 'border-[#39FF14] text-[#39FF14]'
                     : 'border-white/20 text-gray-400'
                 }`}
               >
-                繁體中文
+                繁中
+              </button>
+              <button
+                onClick={() => setLanguage('ko')}
+                className={`px-3 py-2 text-sm font-mono rounded border ${
+                  language === 'ko'
+                    ? 'border-[#39FF14] text-[#39FF14]'
+                    : 'border-white/20 text-gray-400'
+                }`}
+              >
+                한국
+              </button>
+              <button
+                onClick={() => setLanguage('es')}
+                className={`px-3 py-2 text-sm font-mono rounded border ${
+                  language === 'es'
+                    ? 'border-[#39FF14] text-[#39FF14]'
+                    : 'border-white/20 text-gray-400'
+                }`}
+              >
+                ES
               </button>
             </div>
 

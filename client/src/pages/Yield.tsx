@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlitchText } from '@/components/ui/GlitchText';
 import { TreasuryPanel } from '@/components/TreasuryPanel';
+import { RewardHistory } from '@/components/RewardHistory';
+import { ROICalculator } from '@/components/ROICalculator';
 import { Navbar } from '@/components/Navbar';
 import { SyncDetector } from '@/components/SyncDetector';
 import { ArrowRight, TrendingUp, Shield, Coins } from 'lucide-react';
@@ -126,6 +128,9 @@ export default function Yield() {
               transition={{ duration: 0.6, delay: 0.2 }}
               className="space-y-6"
             >
+              {/* ROI Calculator */}
+              <ROICalculator />
+
               {/* Fund Flow Card */}
               <GlassCard className="p-6">
                 <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
@@ -246,6 +251,15 @@ export default function Yield() {
                 </div>
               </div>
             </GlassCard>
+          </motion.div>
+
+          {/* Reward History */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+          >
+            <RewardHistory />
           </motion.div>
         </div>
       </div>
