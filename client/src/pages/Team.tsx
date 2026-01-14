@@ -20,7 +20,7 @@ import abis from "@/contracts/abis.json";
 export default function Team() {
   const { t } = useLanguage();
   const { address } = useAccount();
-  const { summary, teamStats, directReferrals, performance, pendingReferralRewards, refetch } = useTeamStats();
+  const { summary, teamStats, directReferrals, performance, referralRewards, refetch } = useTeamStats();
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [isHarvesting, setIsHarvesting] = useState(false);
   const [isCompounding, setIsCompounding] = useState(false);
@@ -48,11 +48,11 @@ export default function Team() {
     hash: compoundHash,
   });
 
-  // Handle harvest referral rewards
+  // Handle harvest referral rewards (only claimable amount)
   const handleHarvestReferral = async () => {
     if (!address) return;
-    const pendingAmount = parseFloat(pendingReferralRewards || "0");
-    if (pendingAmount <= 0) {
+    const claimableAmount = parseFloat(referralRewards?.claimable || "0");
+    if (claimableAmount <= 0) {
       toast.error(t('team.no_pending_rewards'));
       return;
     }
@@ -65,18 +65,18 @@ export default function Team() {
         functionName: 'harvestReferralRewards',
         args: [],
       });
-      toast.info(`Harvesting ${pendingAmount.toFixed(4)} IVY referral rewards...`);
+      toast.info(`Harvesting ${claimableAmount.toFixed(4)} IVY referral rewards...`);
     } catch (error) {
       toast.error('Harvest failed');
       setIsHarvesting(false);
     }
   };
 
-  // Handle compound referral rewards
+  // Handle compound referral rewards (only claimable amount)
   const handleCompoundReferral = async () => {
     if (!address || selectedBondId === null) return;
-    const pendingAmount = parseFloat(pendingReferralRewards || "0");
-    if (pendingAmount <= 0) {
+    const claimableAmount = parseFloat(referralRewards?.claimable || "0");
+    if (claimableAmount <= 0) {
       toast.error(t('team.no_pending_rewards'));
       return;
     }
@@ -89,7 +89,7 @@ export default function Team() {
         functionName: 'compoundReferralRewards',
         args: [BigInt(selectedBondId)],
       });
-      toast.info(`Compounding ${pendingAmount.toFixed(4)} IVY with +10% bonus...`);
+      toast.info(`Compounding ${claimableAmount.toFixed(4)} IVY with +10% bonus...`);
     } catch (error) {
       toast.error('Compound failed');
       setIsCompounding(false);
@@ -119,7 +119,10 @@ export default function Team() {
   }, [isCompoundSuccess, isCompounding]);
 
   const bondCount = bondIds ? (bondIds as any[]).length : 0;
-  const pendingAmount = parseFloat(pendingReferralRewards || "0");
+  // Referral rewards breakdown
+  const claimableAmount = parseFloat(referralRewards?.claimable || "0");
+  const settlingAmount = parseFloat(referralRewards?.settling || "0");
+  const totalAmount = parseFloat(referralRewards?.total || "0");
 
   // Copy referral link
   const handleCopyReferral = () => {
@@ -235,11 +238,12 @@ export default function Team() {
             delay={0.2}
           />
 
-          {/* Total Rewards (cumulative historical) */}
+          {/* Total Earned (cumulative historical, never decreases) */}
           <StatsCard
             icon={<Award className="w-5 h-5" />}
-            label={t('team.total_rewards')}
+            label={t('team.total_earned')}
             value={`${formatNumber(summary?.totalReferralRewards || "0")} IVY`}
+            subValue={t('team.lifetime_total')}
             color="purple"
             delay={0.3}
           />
@@ -255,7 +259,7 @@ export default function Team() {
           />
         </div>
 
-        {/* Pending Referral Rewards Card (V2.0) */}
+        {/* My Referral Rewards Card (V2.1 - Split View) */}
         {address && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -263,35 +267,68 @@ export default function Team() {
             transition={{ delay: 0.45 }}
           >
             <Card className="bg-gradient-to-r from-[#39FF14]/10 to-emerald-500/10 border-[#39FF14]/40 backdrop-blur-sm p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-[#39FF14]/20 rounded-lg flex items-center justify-center">
-                    <Coins className="w-5 h-5 text-[#39FF14]" />
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 bg-[#39FF14]/20 rounded-lg flex items-center justify-center">
+                  <Coins className="w-5 h-5 text-[#39FF14]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-display font-bold text-white">
+                    {t('team.my_referral_rewards')}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    {t('team.referral_rewards_desc')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Rewards Breakdown */}
+              <div className="space-y-4 mb-5">
+                {/* Claimable - Can withdraw now */}
+                <div className="flex items-center justify-between p-3 bg-[#39FF14]/10 rounded-lg border border-[#39FF14]/30">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-[#39FF14]"></div>
+                    <span className="text-sm font-mono text-slate-300">{t('team.claimable')}</span>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-display font-bold text-white">
-                      {t('team.pending_referral')}
-                    </h3>
-                    <p className="text-xs text-slate-400 font-mono">
-                      {t('team.pending_referral_desc')}
-                    </p>
+                  <div className="text-right">
+                    <div className="text-xl font-display font-bold text-[#39FF14]">
+                      {formatNumber(claimableAmount)} IVY
+                    </div>
+                    <div className="text-xs text-slate-500 font-mono">{t('team.can_withdraw_now')}</div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-3xl font-display font-bold text-[#39FF14]">
-                    {formatNumber(pendingAmount)} IVY
+
+                {/* Settling - Waiting for referrals to sync */}
+                <div className="flex items-center justify-between p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
+                    <span className="text-sm font-mono text-slate-300">{t('team.settling')}</span>
                   </div>
-                  <div className="text-xs text-slate-400 font-mono">
-                    ≈ ${formatNumber(pendingAmount)} USDT
+                  <div className="text-right">
+                    <div className="text-xl font-display font-bold text-yellow-400">
+                      {formatNumber(settlingAmount)} IVY
+                    </div>
+                    <div className="text-xs text-slate-500 font-mono">{t('team.referrals_mining')}</div>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-slate-700"></div>
+
+                {/* Total */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-mono text-slate-400">{t('team.total')}</span>
+                  <div className="text-2xl font-display font-bold text-white">
+                    {formatNumber(totalAmount)} IVY
                   </div>
                 </div>
               </div>
 
-              {/* Action Buttons */}
+              {/* Action Buttons - Only for claimable amount */}
               <div className="flex gap-3">
                 <Button
                   onClick={handleHarvestReferral}
-                  disabled={pendingAmount <= 0 || isHarvesting || isHarvestLoading}
+                  disabled={claimableAmount <= 0 || isHarvesting || isHarvestLoading}
                   className="flex-1 bg-[#39FF14]/20 text-[#39FF14] border border-[#39FF14]/40 hover:bg-[#39FF14]/30 font-mono text-sm gap-2"
                 >
                   <Clock className="w-4 h-4" />
@@ -299,7 +336,7 @@ export default function Team() {
                 </Button>
                 <Button
                   onClick={() => setShowCompoundModal(true)}
-                  disabled={pendingAmount <= 0 || bondCount === 0}
+                  disabled={claimableAmount <= 0 || bondCount === 0}
                   className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/40 hover:bg-orange-500/30 font-mono text-sm gap-2"
                 >
                   <RefreshCw className="w-4 h-4" />
@@ -491,11 +528,11 @@ export default function Team() {
               {t('team.compound_referral')}
             </h3>
 
-            {/* Pending Amount */}
+            {/* Claimable Amount */}
             <div className="mb-4 p-4 rounded-lg bg-[#39FF14]/10 border border-[#39FF14]/30">
-              <div className="text-xs text-slate-400 mb-1">{t('team.pending_referral')}:</div>
+              <div className="text-xs text-slate-400 mb-1">{t('team.claimable')}:</div>
               <div className="text-2xl font-display font-bold text-[#39FF14]">
-                {formatNumber(pendingAmount)} IVY
+                {formatNumber(claimableAmount)} IVY
               </div>
             </div>
 
@@ -519,11 +556,11 @@ export default function Team() {
             </div>
 
             {/* Bonus Calculation */}
-            {selectedBondId !== null && pendingAmount > 0 && (
+            {selectedBondId !== null && claimableAmount > 0 && (
               <div className="mb-4 p-4 rounded-lg bg-orange-500/10 border border-orange-500/30">
                 <div className="text-xs text-slate-400 mb-2">{t('team.compound_referral_desc')}:</div>
                 <div className="font-mono text-orange-400">
-                  <div>{formatNumber(pendingAmount)} IVY × 1.1 = <span className="text-lg font-bold">{formatNumber(pendingAmount * 1.1)}</span> Power</div>
+                  <div>{formatNumber(claimableAmount)} IVY × 1.1 = <span className="text-lg font-bold">{formatNumber(claimableAmount * 1.1)}</span> Power</div>
                 </div>
               </div>
             )}
@@ -543,7 +580,7 @@ export default function Team() {
               <Button
                 className="flex-1 bg-orange-500/20 text-orange-400 border border-orange-500/40 hover:bg-orange-500/30"
                 onClick={handleCompoundReferral}
-                disabled={isCompounding || isCompoundLoading || selectedBondId === null || pendingAmount <= 0}
+                disabled={isCompounding || isCompoundLoading || selectedBondId === null || claimableAmount <= 0}
               >
                 {isCompounding || isCompoundLoading ? t('team.compounding_referral') : t('team.compound_referral')}
               </Button>

@@ -19,11 +19,23 @@ export function useTeamStats() {
     }
   });
 
-  // Read: Pending Referral Rewards (V2.0 - Real-time)
-  const { data: pendingReferralRewards, refetch: refetchPendingReferral } = useReadContract({
+  // Read: Pending Referral Rewards (V2.0 - Real-time, includes settling rewards)
+  const { data: pendingReferralRewardsTotal, refetch: refetchPendingReferral } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
     abi: abis.IvyCore,
     functionName: "getPendingReferralRewards",
+    args: [address || "0x0000000000000000000000000000000000000000"],
+    query: {
+      enabled: !!address,
+      refetchInterval: getSmartRefreshInterval('MINING_STATS'),
+    }
+  });
+
+  // Read: Claimable Referral Rewards (already settled, can withdraw now)
+  const { data: claimableReferralRewards } = useReadContract({
+    address: addresses.IvyCore as `0x${string}`,
+    abi: abis.IvyCore,
+    functionName: "pendingReferralRewards",
     args: [address || "0x0000000000000000000000000000000000000000"],
     query: {
       enabled: !!address,
@@ -97,10 +109,23 @@ export function useTeamStats() {
     hasGenesisNode: false,
   } : null);
 
-  // Parse pending referral rewards (V2.0)
-  const parsedPendingReferral = pendingReferralRewards
-    ? formatEther(pendingReferralRewards as bigint)
+  // Parse referral rewards (V2.0 - split into claimable and settling)
+  const totalReferral = pendingReferralRewardsTotal
+    ? formatEther(pendingReferralRewardsTotal as bigint)
     : "0";
+  const claimableReferral = claimableReferralRewards
+    ? formatEther(claimableReferralRewards as bigint)
+    : "0";
+  // Settling = Total - Claimable (rewards from referrals still mining)
+  const settlingReferral = (
+    parseFloat(totalReferral) - parseFloat(claimableReferral)
+  ).toString();
+
+  const parsedReferralRewards = {
+    claimable: claimableReferral,    // Can withdraw now
+    settling: settlingReferral,       // Waiting for referrals to sync
+    total: totalReferral,             // Total = claimable + settling
+  };
 
   // Parse team stats
   const stats = teamStats as any;
@@ -133,7 +158,7 @@ export function useTeamStats() {
     teamStats: parsedTeamStats,
     directReferrals: parsedDirectReferrals,
     performance: parsedPerformance,
-    pendingReferralRewards: parsedPendingReferral,
+    referralRewards: parsedReferralRewards,
     refetch: {
       summary: refetchSummary,
       teamStats: refetchTeamStats,
