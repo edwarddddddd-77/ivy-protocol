@@ -59,8 +59,10 @@ export function SyncDetector() {
   const bondPowerInIvyBond = ivyBondPower ? Number(ivyBondPower as any) / 1e18 : 0;
   const bondPowerInIvyCore = userInfo ? Number((userInfo as any)[0]) / 1e18 : 0;
 
-  // Need sync if: IvyBond has power AND IvyCore doesn't have it (or significantly different)
-  const needsSync = bondPowerInIvyBond > 0 && Math.abs(bondPowerInIvyBond - bondPowerInIvyCore) > 1;
+  // Need sync if: IvyBond has power AND IvyCore has NO record (bondPower = 0)
+  // Note: IvyCore.bondPower includes Genesis Node boost, so it will be different from IvyBond.bondPower
+  // We only need to sync when user has deposits but IvyCore hasn't registered them at all
+  const needsSync = bondPowerInIvyBond > 0 && bondPowerInIvyCore === 0;
 
   // Handle sync button click
   const handleSync = async () => {
