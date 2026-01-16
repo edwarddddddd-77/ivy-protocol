@@ -9,7 +9,7 @@ export function useIvyContract() {
   const { writeContractAsync } = useWriteContract();
 
   // Read: Current Daily Emission (from IvyCore)
-  const { data: currentDailyEmission } = useReadContract({
+  const { data: currentDailyEmission, isLoading: isLoadingEmission } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
     abi: abis.IvyCore,
     functionName: "currentDailyEmission",
@@ -19,7 +19,7 @@ export function useIvyContract() {
   });
 
   // Read: Protocol Stats (totalMinted, hardCap, emissionFactor, pidMultiplier, totalPoolBondPower, emissionPerSecond)
-  const { data: protocolStats } = useReadContract({
+  const { data: protocolStats, isLoading: isLoadingStats } = useReadContract({
     address: addresses.IvyCore as `0x${string}`,
     abi: abis.IvyCore,
     functionName: "getProtocolStats",
@@ -29,7 +29,7 @@ export function useIvyContract() {
   });
 
   // Read: Genesis Node Total Supply
-  const { data: nodeTotalSupply } = useReadContract({
+  const { data: nodeTotalSupply, isLoading: isLoadingNodes } = useReadContract({
     address: addresses.GenesisNode as `0x${string}`,
     abi: abis.GenesisNode,
     functionName: "totalSupply",
@@ -39,7 +39,7 @@ export function useIvyContract() {
   });
 
   // Read: User IVY Balance
-  const { data: ivyBalance } = useReadContract({
+  const { data: ivyBalance, isLoading: isLoadingBalance } = useReadContract({
     address: addresses.IvyToken as `0x${string}`,
     abi: abis.IvyToken,
     functionName: "balanceOf",
@@ -132,13 +132,19 @@ export function useIvyContract() {
     });
   };
 
+  // Combined loading state for dashboard
+  const isLoading = isLoadingEmission || isLoadingStats || isLoadingNodes;
+
   return {
+    // Loading State
+    isLoading,
+
     // Dashboard Data
     dailyMintAmount: currentDailyEmission ? formatEther(currentDailyEmission as bigint) : "30000",
     nodeTotalSupply: nodeTotalSupply ? Number(nodeTotalSupply) : 0,
     pidMultiplier: pidMultiplier,
     effectiveAlpha: pidMultiplier * emissionFactor,  // Combined multiplier for UI
-    
+
     // User Data
     ivyBalance: ivyBalance ? formatEther(ivyBalance as bigint) : "0",
     pendingIvy: pendingIvy ? formatEther(pendingIvy as bigint) : "0",

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { isAddress } from "viem";
+import { StatsCardSkeleton } from "@/components/ui/Skeletons";
 
 export default function Home() {
   const [isHoveringMint, setIsHoveringMint] = useState(false);
@@ -34,7 +35,7 @@ export default function Home() {
     }
   }, [t]);
   
-  const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, nodeTotalSupply, pidMultiplier, address } = useIvyContract();
+  const { dailyMintAmount, cbStatus, effectiveAlpha, ivyBalance, nodeTotalSupply, pidMultiplier, address, isLoading } = useIvyContract();
 
   // Circuit Breaker Status
   const isRedAlert = cbStatus?.isActive && cbStatus?.level === 3; // Level 3 = RED
@@ -152,20 +153,35 @@ export default function Home() {
         </div>
 
         {/* Data HUD Layer (Floating Glass Cards) */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.8 }}
           className="relative md:absolute md:bottom-8 md:right-8 lg:right-12 flex flex-col sm:flex-row gap-4 z-40 items-stretch md:items-end w-full md:w-auto"
         >
-          <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
-            <GlassCard label={t('dashboard.daily_mint')} value={`${parseFloat(dailyMintAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} sub={t('dashboard.ivy_per_day')} icon={<Activity className={`w-4 h-4 ${isRedAlert ? 'text-red-500' : 'text-[#39FF14]'}`} />} glow={!isRedAlert} alert={isRedAlert} className="flex-1 md:flex-none" />
-            <GlassCard label={t('dashboard.your_balance')} value={`${(parseFloat(ivyBalance) || 0).toFixed(2)}`} sub="IVY" icon={<Database className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
-          </div>
-          <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
-            <GlassCard label={t('dashboard.nodes')} value={`${nodeTotalSupply}`} sub={t('dashboard.genesis')} icon={<Cpu className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
-            <GlassCard label={t('dashboard.pid_status')} value={`${pidValue.toFixed(3)}x`} sub={isRedAlert ? "CIRCUIT BREAKER" : t('dashboard.boost_active')} icon={<Zap className={`w-4 h-4 ${isRedAlert ? 'text-red-500' : 'text-[#39FF14]'}`} />} glow={!isRedAlert} alert={isRedAlert} className="flex-1 md:flex-none" />
-          </div>
+          {isLoading ? (
+            <>
+              <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
+                <StatsCardSkeleton className="flex-1 md:flex-none" />
+                <StatsCardSkeleton className="flex-1 md:flex-none" />
+              </div>
+              <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
+                <StatsCardSkeleton className="flex-1 md:flex-none" />
+                <StatsCardSkeleton className="flex-1 md:flex-none" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
+                <GlassCard label={t('dashboard.daily_mint')} value={`${parseFloat(dailyMintAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} sub={t('dashboard.ivy_per_day')} icon={<Activity className={`w-4 h-4 ${isRedAlert ? 'text-red-500' : 'text-[#39FF14]'}`} />} glow={!isRedAlert} alert={isRedAlert} className="flex-1 md:flex-none" />
+                <GlassCard label={t('dashboard.your_balance')} value={`${(parseFloat(ivyBalance) || 0).toFixed(2)}`} sub="IVY" icon={<Database className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
+              </div>
+              <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
+                <GlassCard label={t('dashboard.nodes')} value={`${nodeTotalSupply}`} sub={t('dashboard.genesis')} icon={<Cpu className="w-4 h-4 text-slate-400" />} className="flex-1 md:flex-none" />
+                <GlassCard label={t('dashboard.pid_status')} value={`${pidValue.toFixed(3)}x`} sub={isRedAlert ? "CIRCUIT BREAKER" : t('dashboard.boost_active')} icon={<Zap className={`w-4 h-4 ${isRedAlert ? 'text-red-500' : 'text-[#39FF14]'}`} />} glow={!isRedAlert} alert={isRedAlert} className="flex-1 md:flex-none" />
+              </div>
+            </>
+          )}
         </motion.div>
       </main>
       
