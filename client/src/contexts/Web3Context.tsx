@@ -14,8 +14,9 @@ import {
 } from "@tanstack/react-query";
 import { ReactNode } from 'react';
 
-// High-availability RPC endpoints - publicnode first (most reliable)
+// High-availability RPC endpoints - NodeReal first (most reliable)
 const bscTestnetRpcs = [
+  'https://bsc-testnet.nodereal.io/v1/e9a36765eb8a40b9bd12e680a1fd2bc5',
   'https://bsc-testnet.publicnode.com',
   'https://data-seed-prebsc-1-s1.binance.org:8545',
   'https://data-seed-prebsc-2-s1.binance.org:8545',
