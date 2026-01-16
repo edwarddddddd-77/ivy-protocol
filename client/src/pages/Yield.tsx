@@ -8,6 +8,7 @@ import { RewardHistory } from '@/components/RewardHistory';
 import { ROICalculator } from '@/components/ROICalculator';
 import { Navbar } from '@/components/Navbar';
 import { SyncDetector } from '@/components/SyncDetector';
+import { PanelSkeleton } from '@/components/ui/Skeletons';
 import { ArrowRight, TrendingUp, Shield, Coins } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import addresses from '@/contracts/addresses.json';
@@ -19,7 +20,7 @@ export default function Yield() {
   const { t } = useLanguage();
 
   // Read user's boost from GenesisNode
-  const { data: totalBoost } = useReadContract({
+  const { data: totalBoost, isLoading: isLoadingBoost } = useReadContract({
     address: addresses.GenesisNode as `0x${string}`,
     abi: abis.GenesisNode,
     functionName: 'getTotalBoost',
@@ -28,7 +29,7 @@ export default function Yield() {
   });
 
   // Read user's NFT balance
-  const { data: nftBalance } = useReadContract({
+  const { data: nftBalance, isLoading: isLoadingBalance } = useReadContract({
     address: addresses.GenesisNode as `0x${string}`,
     abi: abis.GenesisNode,
     functionName: 'balanceOf',
@@ -38,6 +39,7 @@ export default function Yield() {
 
   const userBoost = totalBoost ? Number(totalBoost as any) / 100 : 0;
   const hasNode = nftBalance ? Number(nftBalance as any) > 0 : false;
+  const isLoading = isLoadingBoost || isLoadingBalance;
 
   if (!isConnected) {
     return (
@@ -118,7 +120,11 @@ export default function Yield() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="lg:col-span-2"
             >
-              <TreasuryPanel />
+              {isLoading ? (
+                <PanelSkeleton rows={8} className="h-full" />
+              ) : (
+                <TreasuryPanel />
+              )}
             </motion.div>
 
             {/* Right Column: Info Cards */}
@@ -129,7 +135,11 @@ export default function Yield() {
               className="space-y-6"
             >
               {/* ROI Calculator */}
-              <ROICalculator />
+              {isLoading ? (
+                <PanelSkeleton rows={4} />
+              ) : (
+                <ROICalculator />
+              )}
 
               {/* Fund Flow Card */}
               <GlassCard className="p-6">
