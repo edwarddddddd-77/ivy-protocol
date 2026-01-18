@@ -1,3 +1,10 @@
+// Polyfill for Object.hasOwn (ES2022) - for older browser compatibility
+if (!Object.hasOwn) {
+  Object.hasOwn = function(obj: object, prop: PropertyKey): boolean {
+    return Object.prototype.hasOwnProperty.call(obj, prop);
+  };
+}
+
 import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/react";
 import App from "./App";
