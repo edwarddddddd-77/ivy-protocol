@@ -240,7 +240,7 @@ export function Navbar({ currentPage }: NavbarProps) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed inset-0 z-40 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center gap-6 pt-20 md:hidden"
+            className="fixed inset-0 z-40 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center gap-6 pt-24 md:hidden"
           >
             {navItems.map((item) => (
               <button
