@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import {
   Users, TrendingUp, Award, Zap, Copy, Check,
-  UserPlus, Activity, BarChart3, Target, ArrowUpRight,
+  UserPlus, Activity, BarChart3, Target,
   Coins, RefreshCw, Clock
 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -495,30 +495,6 @@ export default function Team() {
                 <p className="text-xs mt-2">{t('team.share_link')}</p>
               </div>
             )}
-          </Card>
-        </motion.div>
-
-        {/* Tips Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-        >
-          <Card className="bg-gradient-to-r from-[#39FF14]/10 to-transparent border-[#39FF14]/30 p-6">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 bg-[#39FF14]/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                <ArrowUpRight className="w-5 h-5 text-[#39FF14]" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="font-display font-bold text-lg">{t('team.maximize_earnings')}</h3>
-                <ul className="space-y-1 text-sm text-slate-300 font-mono">
-                  <li>• {t('team.reward_l1')}: <span className="text-[#39FF14]">10%</span> {t('team.reward_l1_desc')}</li>
-                  <li>• {t('team.reward_l2')}: <span className="text-[#39FF14]">5%</span> {t('team.reward_l2_desc')}</li>
-                  <li>• {t('team.reward_l3')}: <span className="text-[#39FF14]">2%</span> {t('team.reward_l3_desc')}</li>
-                  <li>• {t('team.reward_peer')}: <span className="text-[#39FF14]">0.5%</span> {t('team.reward_peer_desc')}</li>
-                </ul>
-              </div>
-            </div>
           </Card>
         </motion.div>
 
