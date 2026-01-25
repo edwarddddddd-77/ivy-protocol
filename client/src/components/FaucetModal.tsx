@@ -90,9 +90,9 @@ export function FaucetModal({ isOpen, onClose }: FaucetModalProps) {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md"
+            className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 z-50 md:w-full md:max-w-md flex items-center justify-center"
           >
-            <div className="bg-slate-900 border border-yellow-500/30 rounded-lg shadow-2xl shadow-yellow-500/10 overflow-hidden">
+            <div className="bg-slate-900 border border-yellow-500/30 rounded-lg shadow-2xl shadow-yellow-500/10 overflow-hidden w-full max-h-[calc(100vh-2rem)] md:max-h-[90vh] overflow-y-auto">
               {/* Header */}
               <div className="flex items-center justify-between p-4 border-b border-yellow-500/20 bg-yellow-500/5">
                 <div className="flex items-center gap-3">
