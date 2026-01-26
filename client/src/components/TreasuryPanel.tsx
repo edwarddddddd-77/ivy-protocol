@@ -821,14 +821,14 @@ export function TreasuryPanel() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <RefreshCw className="w-4 h-4 text-orange-400" />
-              <span className="text-sm font-bold text-white">Compound (复投)</span>
+              <span className="text-sm font-bold text-white">{t('treasury.compound_title')}</span>
             </div>
             <div className="px-2 py-0.5 bg-orange-500/20 rounded text-[10px] text-orange-400 font-bold">
-              +10% BONUS
+              {t('treasury.compound_bonus')}
             </div>
           </div>
           <div className="text-[10px] text-gray-400 mb-2">
-            Whitepaper: "复投部分的资金给予 10% 的算力加成"
+            {t('treasury.compound_desc')}
           </div>
           <Button 
             variant="outline"
